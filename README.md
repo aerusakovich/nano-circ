@@ -23,9 +23,8 @@ This is a comprehensive bioinformatics pipeline for generating realistic simulat
 The workflow requires several Conda environments to run different components of the pipeline. The main environment (`bed12`) is used as the default, with additional specialized environments for specific tools.
 
 ```bash
-# Clone this repository
-git clone https://github.com/username/CircSim.git
-cd CircSim
+# Clone this repository and then cd to it
+git clone https://gitlab.com/bioinfog/circall/circ_jobim.git
 
 # Create the main environment
 conda env create -f envs/main_environment.yml
