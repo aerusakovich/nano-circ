@@ -1,0 +1,19 @@
+name: isocirc
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - _libgcc_mutex=0.1=conda_forge
+  - _openmp_mutex=4.5=2_gnu
+  - bedtools=2.31.1=hf5e1c6e_1
+  - bzip2=1.0.8=hd590300_5
+  - k8=0.2.5=hdcf5f25_4
+  - libgcc-ng=13.2.0=h807b86a_5
+  - libgomp=13.2.0=h807b86a_5
+  - libstdcxx-ng=13.2.0=h7e041cc_5
+  - libzlib=1.2.13=hd590300_5
+  - minimap2=2.26=he4a0461_2
+  - xz=5.2.6=h166bdaf_0
+  - zlib=1.2.13=hd590300_5
+prefix: /home/genouest/cnrs_umr6290/aerusakovich/.conda/envs/isocirc
