@@ -7,6 +7,8 @@
 ## Overview
 This is a comprehensive bioinformatics pipeline for generating realistic simulated circular RNA (circRNA) datasets for Oxford Nanopore long-read sequencing. This framework integrates molecular features of circRNAs extracted from established databases and real datasets into NanoSim to create FASTQ reads that accurately reflect biological diversity and technical properties of circular RNAs. CircSim serves as a standardized evaluation framework for benchmarking circRNA detection tools from long-read sequencing data.
 
+![Computational Workflow for Nanopore Sequencing circRNA Simulation](https://drive.google.com/file/d/19sxSWxlY_CrpScCTtKZ664CHgn7u_wwF/view?usp=sharing) 
+
 ## Features
 
 - **Realistic circRNA Simulation**: Generates in silico reads that mimic the molecular and sequencing characteristics of circular RNAs based on real Nanopore sequencing data
