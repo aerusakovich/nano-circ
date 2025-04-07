@@ -246,7 +246,7 @@ sbatch 5_combo_performance.sh
 
 ## License
 
-This project is freely available under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.
+This project is freely available under the GNU General Public License v3.0 (GPL-3.0). See the [https://www.gnu.org/licenses/gpl-3.0.en.html](LICENSE) file for details.
 
 ---
 
