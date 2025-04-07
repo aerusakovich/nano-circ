@@ -1,93 +1,253 @@
-# circ_jobim
+# Benchmarking circRNA Detection Tools from Long-Read Sequencing Using Data-Driven and Flexible Simulation Framework
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
 
+## Overview
+This is a comprehensive bioinformatics pipeline for generating realistic simulated circular RNA (circRNA) datasets for Oxford Nanopore long-read sequencing. This framework integrates molecular features of circRNAs extracted from established databases and real datasets into NanoSim to create FASTQ reads that accurately reflect biological diversity and technical properties of circular RNAs. CircSim serves as a standardized evaluation framework for benchmarking circRNA detection tools from long-read sequencing data.
 
-## Getting started
+## Features
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/bioinfog/circall/circ_jobim.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-- [ ] [Set up project integrations](https://gitlab.com/bioinfog/circall/circ_jobim/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+- **Realistic circRNA Simulation**: Generates in silico reads that mimic the molecular and sequencing characteristics of circular RNAs based on real Nanopore sequencing data
+- **Comprehensive circRNA Types**: Simulates four distinct circRNA types (exonic circRNAs, circular intronic RNAs, exon-intron circRNAs, and intergenic circRNAs) with realistic distributions
+- **Biological Accuracy**: Incorporates key biological features including splice site motifs, exon count distributions, and mature length variations extracted from circRNA databases
+- **Customizable Parameters**: Offers user-defined controls for rolling circle amplification, read count, and other simulation parameters to match specific experimental conditions
+- **Standardized Benchmark Framework**: Provides a controlled environment with precisely known circRNA annotations for rigorous assessment of detection tool performance
+- **Performance Evaluation**: Includes comprehensive metrics (precision, recall, F1 score) assessment across different overlap thresholds and circRNA subtypes
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### Setting Up Conda Environments
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+The workflow requires several Conda environments to run different components of the pipeline. The main environment (`bed12`) is used as the default, with additional specialized environments for specific tools.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```bash
+# Clone this repository
+git clone https://github.com/username/CircSim.git
+cd CircSim
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+# Create the main environment
+conda env create -f envs/main_environment.yml
+conda activate bed12
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+# Create tool-specific environments (as needed)
+conda env create -f envs/nanosim_environment.yml
+conda env create -f envs/circnick_environment.yml
+conda env create -f envs/ciri-long_environment.yml
+conda env create -f envs/isocirc_environment.yml
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+### Environment Details
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+1. **Main Environment (bed12)**: Default environment for running the core pipeline and analysis tools
+2. **NanoSim Environment**: For running the NanoSim read simulator
+3. **Tool-specific Environments**:
+   - circnick_environment
+   - ciri-long_environment
+   - isocirc_environment
+
+To ensure reproducibility, each tool runs in its own isolated environment with appropriate dependencies.
+
+## Workflow Steps
+
+### 1. Genome Coordinate Conversion (liftover_script.py)
+
+This Python script converts circRNA coordinates from mm9 to mm10 genome assembly, which is necessary for compatibility with current reference genomes and tools.
+
+```bash
+# Usage
+python liftover_script.py --fasta input_circrnas.fasta --output liftover_output
+```
+
+**Features:**
+- Automatically downloads the mm9ToMm10 chain file from UCSC
+- Extracts coordinates from circRNA FASTA headers using flexible pattern matching
+- Performs coordinate liftOver from mm9 to mm10
+- Creates an updated FASTA file with mm10 coordinates
+
+### 2. Feature Extraction and Analysis
+
+This component analyzes circRNA databases to extract biological features:
+
+```bash
+# Usage
+sbatch 1_feature_extraction_db.sh
+```
+
+**Features:**
+- Processes and intersects circRNA databases (CircAtlas, CircBase)
+- Analyzes circRNAs for splice sites and classification
+- Generates comprehensive metrics for each database
+
+### 3. Database Visualization
+
+Creates comprehensive plots for circRNA data analysis:
+
+```bash
+# Usage
+python 2_database_vis.py --csv circRNA_results.csv --output visualization_output
+```
+
+**Features:**
+- Optimized pie charts for circRNA type and splice site distributions
+- Boxplots showing mature length distribution by circRNA type
+- Stacked bar charts for exon count distribution
+
+### 4. Wet Lab Feature Extraction
+
+Extracts key parameters from real sequencing data for use in simulation:
+
+```bash
+# Usage
+python 4_wet_features.py --bed_file mapped_reads.bed --trf_file tandem_repeats.txt --output_dir feature_extraction_results
+```
+
+**Features:**
+- Analyzes read length distributions from real data
+- Extracts rolling circle features (period sizes, copy numbers)
+- Identifies tandem repeat characteristics
+- Generates parameters for realistic simulation
+
+### 5. Parallel CircRNA Simulation
+
+Runs multiple parallel simulations to generate circRNA sequences:
+
+```bash
+# Usage
+sbatch 1_10x_sim.sh
+```
+
+**Features:**
+- Manages simulation of circRNA datasets
+- Automatically generates comprehensive summary reports
+
+### 6. CircRNA Sequence Generation
+
+This Python script simulates circRNAs with biologically accurate features:
+
+```bash
+# Usage
+python 2_circ_fa_generation_exoncount.py --gtf gencode.annotation.gtf --genome reference.fa --output output_dir --count 10000 --bedtools bedtools_path
+```
+
+**Features:**
+- Generates four distinct circRNA types (eciRNA, EIciRNA, ciRNA, intergenic)
+- Produces realistic mature length distributions based on database analysis
+- Creates biologically accurate splice site patterns
+- Includes rolling circle amplification with realistic copy numbers
+
+### 7. NanoSim Read Simulation
+
+Generates simulated Nanopore reads from the circRNA sequences:
+
+```bash
+# Usage
+sbatch 3_nanosim_jobim.sh
+```
+
+**Features:**
+- Performs read characterization from real Nanopore data
+- Simulates realistic circRNA long reads with Oxford Nanopore error profiles
+- Generates linear mRNA reads as negative controls
+- Creates data with realistic expression quantification
+
+### 8. Data Preparation for Tool Evaluation
+
+Prepares the simulated reads for circRNA detection tool evaluation:
+
+```bash
+# Usage
+sbatch 0_pooling.sh
+```
+
+**Features:**
+- Combines circRNA and linear RNA reads into a single FASTQ file
+- Adds identifiers to read headers to track their origin
+- Creates both uncompressed and compressed versions of the data
+
+### 9. CircRNA Detection Tool Running
+
+#### CIRI-long Detection
+
+```bash
+# Usage
+sbatch 1_ciri-long.sh
+```
+
+**Features:**
+- Processes Nanopore long reads using the CIRI-long algorithm
+- Identifies candidate circular RNAs based on rolling circle signatures
+- Collapses similar circRNAs to reduce redundancy
+- Integrates with reference annotations
+
+#### IsoCirc Detection
+
+```bash
+# Usage
+sbatch 2_isocirc.sh
+```
+
+**Features:**
+- Processes Nanopore long reads using the IsoCirc pipeline
+- Specialized in characterizing full-length circRNA isoforms
+- Detects and quantifies alternative splicing events in circRNAs
+
+#### CircNick-lrs Detection
+
+```bash
+# Usage
+sbatch 3_circnick.sh
+```
+
+**Features:**
+- Processes Nanopore long reads using the circNICK-lrs workflow
+- Specifically designed for long-read sequencing data
+- Uses BLAT for more sensitive alignment of circRNAs
+- Identifies backsplice junctions using specialized algorithms
+
+### 10. BED12 Format Conversion
+
+These scripts convert tool outputs to standardized BED12 format for evaluation:
+
+```bash
+# Usage
+sbatch 1_ground_truth.sh
+sbatch 2_jobim_circnick_bed.sh
+sbatch 3_jobim_cirilong_bed.sh
+```
+
+**Features:**
+- Converts tool-specific outputs to standardized BED12 format
+- Maintains all essential circRNA properties in BED12 format
+- Enables accurate overlap calculation in evaluation
+
+**Note:** IsoCirc already outputs results in BED12 format (`isocirc_output/isocirc.bed`), so no conversion is required.
+
+### 11. Performance Metrics Analysis
+
+A suite of scripts for comprehensive evaluation of circRNA detection tool performance:
+
+```bash
+# Examples
+python 1_job_plots.py --time-csv runtime.csv --memory-csv memory.csv --output-dir metrics_output
+python 2_type_length_plots.py --ground-truth ground_truth.bed --circrna-db circRNAs.bed --output-dir type_length_analysis
+sbatch 3_upset.sh
+sbatch 4_metrics_performance.sh
+sbatch 5_combo_performance.sh
+```
+
+**Features:**
+- Computation performance evaluation with runtime and memory usage visualizations
+- CircRNA type and length distribution analysis across tools
+- UpSet plots to visualize set intersections between tools
+- Precision, recall, and F1 score comparisons with and without exon-aware detection
+- Tool combination analysis to determine optimal detection approaches
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+This project is freely available under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.
+
+---
+
+Developed by the IGDR (Institut de Génétique et Développement de Rennes) - UMR 6290 CNRS, University of Rennes
