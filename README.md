@@ -10,6 +10,16 @@ This is a comprehensive bioinformatics pipeline for generating realistic simulat
 ![Computational Workflow for Nanopore Sequencing circRNA Simulation](https://drive.google.com/uc?export=view&id=1GEqbbmgli_PldVW9ClEypWZ2WXqb1mSj)
 The workflow integrates wet-lab Oxford Nanopore Technologies (ONT) read characteristics with computational simulation techniques. Panels A-C depict sequential stages of data processing and simulation: (A) initial feature extraction from circRNA databases and experimental reads, (B) generation of protocol-specific reference circRNA sequences, and (C) NanoSim-based simulation generating detailed computational read models. 
 
+### CircRNA Types and Protocol-Specific Sequence Patterns
+
+![Types of circRNAs](https://drive.google.com/uc?export=view&id=1zTN8EqZ-gAqHNGAPPAdEq4Gz9jXBywTd)
+
+**Supplementary Figure 1. Types of circRNAs.** (A) EcircRNAs contain only exon sequences. (B) EIciRNAs have both exon and intron sequences. (C) ciRNAs contain only intron sequences. (D) Intergenic circRNAs are derived from the sequence between two different protein-coding genes. Adapted from: Zeng, Le & Liu, Longzhou & Ni, Wen-Juan & Xie, Fuhua & Xiaomin, Leng. (2023). Circular RNAs in osteosarcoma: An update of recent studies (Review). International Journal of Oncology. 63. 10.3892/ijo.2023.5571.
+
+![Expected sequence based on wet-lab approach](https://drive.google.com/uc?export=view&id=1DLjgEFbK0kohZGHeE-xtatbMrRaLbIZj)
+
+**Supplementary Figure 2. Expected sequence based on wet-lab approach.** (A) Nicking approach utilised by circNICK-lrs tool provides one circRNA - one read pattern. (B) Rolling circle approach utilised by CIRI-long and isoCIRC have several repeats of circRNA per read creating during rolling circle reverse transcription or rolling circle amplification step.
+
 ## Features
 
 - **Realistic circRNA Simulation**: Generates in silico reads that mimic the molecular and sequencing characteristics of circular RNAs based on real Nanopore sequencing data
@@ -28,6 +38,7 @@ The workflow requires several Conda environments to run different components of 
 ```bash
 # Clone this repository and then cd to it
 git clone https://gitlab.com/bioinfog/circall/circ_jobim.git
+cd circ_jobim
 
 # Create the main environment
 conda env create -f envs/main_environment.yml
