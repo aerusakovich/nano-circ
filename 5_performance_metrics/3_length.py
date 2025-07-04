@@ -7,7 +7,7 @@ import seaborn as sns
 import numpy as np
 import argparse
 
-# Tool colors with ground truth added
+# Tool colors
 TOOL_COLORS = {
     'ciri_long': '#1f77b4',    # Blue
     'isocirc': '#2ca02c',      # Green

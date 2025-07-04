@@ -6,7 +6,7 @@ import subprocess
 import logging
 import matplotlib.pyplot as plt
 
-# Default paths
+
 GTF_FILE = "/home/genouest/cnrs_umr6290/aerusakovich/benchmark/data/ciri-long/files/m38/gencode.vM10.sorted.annotation.gtf"
 BEDTOOLS_CMD = "bedtools"
 
