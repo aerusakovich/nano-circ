@@ -422,5 +422,30 @@ chmod +x "${OUTPUT_DIR}/analyze_results.R"
 echo "Running R analysis script..."
 Rscript "${OUTPUT_DIR}/analyze_results.R"
 
+# Generate summary table using presence_absence.csv for consistency with UpSet plot
+FRACTION_DIR="${RUN_BEDTOOLS_DIR}/f0.95"
+PRESENCE_FILE="${FRACTION_DIR}/presence_absence.csv"
+SUMMARY_OUTPUT="${FRACTION_DIR}/final_summary_counts.tsv"
+
+if [ -f "$PRESENCE_FILE" ]; then
+    echo -e "Combination\tCount" > "$SUMMARY_OUTPUT"
+    awk -F',' '
+    NR > 1 {
+        combo = ($2==1 ? "CIRI-long" : "") \
+              (($2==1 && $3==1) ? "_" : "") ($3==1 ? "isoCIRC" : "") \
+              ((($2==1 || $3==1) && $4==1) ? "_" : "") ($4==1 ? "circNICK-lrs" : "")
+        if (combo == "") combo = "None"
+        count[combo]++
+    }
+    END {
+        for (k in count) print k "\t" count[k]
+    }' "$PRESENCE_FILE" >> "$SUMMARY_OUTPUT"
+
+    echo "Saved presence-based summary to: $SUMMARY_OUTPUT"
+else
+    echo "WARNING: presence_absence.csv not found. Skipping summary table generation."
+fi
+
+
 echo "CircRNA isoform comparison with -split option complete!"
 echo "Results have been saved to: /scratch/aerusakovich/sim_ciri_long_jobim/all/bed12/results/upset_split/"
