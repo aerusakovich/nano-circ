@@ -6,7 +6,7 @@ import argparse
 import numpy as np
 import re
 
-# Tool colors matching benchmark script
+# Tool colors 
 TOOL_COLORS = {
     'ciri-long': '#0072B2',  # Blue
     'isocirc': '#009E73',    # Green
