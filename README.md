@@ -10,24 +10,34 @@ This is a comprehensive bioinformatics pipeline for generating realistic simulat
 ![Computational Workflow for Nanopore Sequencing circRNA Simulation](https://drive.google.com/uc?export=view&id=1GEqbbmgli_PldVW9ClEypWZ2WXqb1mSj)
 The workflow integrates wet-lab Oxford Nanopore Technologies (ONT) read characteristics with computational simulation techniques. Panels A-C depict sequential stages of data processing and simulation: (A) initial feature extraction from circRNA databases and experimental reads, (B) generation of protocol-specific reference circRNA sequences, and (C) NanoSim-based simulation generating detailed computational read models. 
 
-### CircRNA Types and Protocol-Specific Sequence Patterns
-
-![Types of circRNAs](https://drive.google.com/uc?export=view&id=1zTN8EqZ-gAqHNGAPPAdEq4Gz9jXBywTd)
-
-**Supplementary Figure 1. Types of circRNAs.** (A) EcircRNAs contain only exon sequences. (B) EIciRNAs have both exon and intron sequences. (C) ciRNAs contain only intron sequences. (D) Intergenic circRNAs are derived from the sequence between two different protein-coding genes. Adapted from: Zeng, Le & Liu, Longzhou & Ni, Wen-Juan & Xie, Fuhua & Xiaomin, Leng. (2023). Circular RNAs in osteosarcoma: An update of recent studies (Review). International Journal of Oncology. 63. 10.3892/ijo.2023.5571.
-
-![Expected sequence based on wet-lab approach](https://drive.google.com/uc?export=view&id=1DLjgEFbK0kohZGHeE-xtatbMrRaLbIZj)
-
-**Supplementary Figure 2. Expected sequence based on wet-lab approach.** (A) Nicking approach utilised by circNICK-lrs tool provides one circRNA - one read pattern. (B) Rolling circle approach utilised by CIRI-long and isoCIRC have several repeats of circRNA per read creating during rolling circle reverse transcription or rolling circle amplification step.
-
 ## Features
 
-- **Realistic circRNA Simulation**: Generates in silico reads that mimic the molecular and sequencing characteristics of circular RNAs based on real Nanopore sequencing data
-- **Comprehensive circRNA Types**: Simulates four distinct circRNA types (exonic circRNAs, circular intronic RNAs, exon-intron circRNAs, and intergenic circRNAs) with realistic distributions
-- **Biological Accuracy**: Incorporates key biological features including splice site motifs, exon count distributions, and mature length variations extracted from circRNA databases
-- **Customizable Parameters**: Offers user-defined controls for rolling circle amplification, read count, and other simulation parameters to match specific experimental conditions
-- **Standardized Benchmark Framework**: Provides a controlled environment with precisely known circRNA annotations for rigorous assessment of detection tool performance
-- **Performance Evaluation**: Includes comprehensive metrics (precision, recall, F1 score) assessment across different overlap thresholds and circRNA subtypes
+- **circRNA simulation**: Generates in silico reads that mimic the molecular and sequencing characteristics of circular RNAs based on real Nanopore sequencing data
+- **circRNA types generation**: Simulates four distinct circRNA types (exonic circRNAs, circular intronic RNAs, exon-intron circRNAs, and intergenic circRNAs) with realistic distributions
+- **Biological features simulation**: Incorporates key biological features including splice site motifs, exon count distributions, and mature length variations extracted from circRNA databases
+- **Customizable parameters**: Offers user-defined controls for rolling circle amplification, read count, and other simulation parameters to match specific experimental conditions
+- **Standardized benchmark framework**: Provides a controlled environment with precisely known circRNA annotations for  assessment of detection tool performance
+- **Performance evaluation**: Includes descriptive and performance metrics (precision, recall, F1 score) assessment across different overlap thresholds and circRNA subtypes
+
+# Repository Structure
+
+```
+nano-circ/
+├── envs/                    # Conda environment definitions
+├── manuscript_v1/           # Scripts used in manuscript version 1 (shell/Python-based)
+│   ├── 0_file_processing/
+│   ├── 1_feature_extraction/
+│   ├── 2_simulation_circRNAs/
+│   ├── 3_tools/
+│   ├── 4_make_bed12/
+│   └── 5_performance_metrics/
+└── manuscript_v2/           # Scripts used in manuscript version 2 (Nextflow pipeline)
+    └── Scripts/
+        ├── Analysis/        # Nextflow pipeline (main.nf + modules)
+        └── Visualisation/   # Updated visualisation scripts
+```
+
+> **Note:** The `manuscript_v2` analysis is replacing Nanosim simulation step (step 2.3), tool execution(step 3) and bed12 conversion (step 4) from v1 with a Nextflow pipeline for improved reproducibility and scalability across multiple datasets. The `manuscript_v2` visualisation replaces previous visualisations (step 5) by interacting with nextflow files to calculate performance metrics and resource usage across several runs.
 
 ## Installation
 
@@ -256,6 +266,44 @@ sbatch 5_combo_performance.sh
 - UpSet plots to visualize set intersections between tools
 - Precision, recall, and F1 score comparisons with and without exon-aware detection
 - Tool combination analysis to determine optimal detection approaches
+
+## Manuscript v2 Workflow (Nextflow Pipeline)
+
+Manuscript v2 introduces a fully integrated [Nextflow](https://www.nextflow.io/) pipeline that automates the complete analysis — from NanoSim read simulation through BED12 generation and performance evaluation — along with updated visualisation scripts.
+
+### Running the Pipeline
+
+```bash
+cd manuscript_v2/Scripts/Analysis
+nextflow run main.nf -params-file params.yaml -c nextflow.config
+```
+
+Pipeline parameters (reference genome, annotation, read counts, tool paths, etc.) are configured in `params.yaml`. Resource allocation and executor settings are defined in `nextflow.config`.
+
+### Pipeline Modules
+
+The pipeline (`main.nf`) is composed of the following modules located in `manuscript_v2/Scripts/Analysis/modules/`:
+
+| Module | Description |
+|---|---|
+| `nanosim.nf` | Characterises real ONT reads and simulates circRNA long reads with realistic error profiles |
+| `cirilong.nf` | Runs CIRI-long detection and collapses redundant circRNA calls |
+| `isocirc.nf` | Runs IsoCirc detection for full-length circRNA isoform characterisation |
+| `circnick.nf` | Runs circNICK-lrs detection using BLAT-based alignment |
+| `bed12_conversion.nf` | Converts tool-specific outputs and ground truth annotations to standardised BED12 format |
+| `performance.nf` | Computes and plots resource usage and execution time based on trace Nextflow files |
+
+### Visualisation
+
+Updated visualisation scripts are located in `manuscript_v2/Scripts/Visualisation/`:
+
+```bash
+# Extract required files into split run folders using symlinks
+bash manuscript_v2/Scripts/Visualisation/symlinks_nf.sh
+
+# Generate all figures used in the manuscript
+bash manuscript_v2/Scripts/Visualisation/plots.sh
+```
 
 ## License
 
