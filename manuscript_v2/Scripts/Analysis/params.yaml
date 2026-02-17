@@ -1,0 +1,23 @@
+base_dir: "/projects/dog/anastasia/PCI_benchmark/run2_mouse_in_silico_realistic"
+simulated_data_dir: "/projects/dog/anastasia/PCI_benchmark/raw_data/in_silico_mus"
+
+genome_fasta: "/home/genouest/cnrs_umr6290/aerusakovich/benchmark/data/ciri-long/files/m38/GRCm38.p4.genome_corrected.fa"
+gtf_file: "/home/genouest/cnrs_umr6290/aerusakovich/benchmark/data/ciri-long/files/m38/gencode.vM10.annotation.gtf"
+circrna_db: "/home/genouest/cnrs_umr6290/aerusakovich/benchmark/data/ciri-long/files/m38/circ_anno/union_bed.bed"
+transcriptome: "/home/genouest/cnrs_umr6290/aerusakovich/benchmark/data/ciri-long/files/m38/ref_transcriptome/gencode.vM10.transcripts.fa"
+
+cirilong_container: "/scratch/aerusakovich/~/benchmark/data/singularity/ciri-long_latest.sif"
+isocirc_container: "/scratch/aerusakovich/rerun_PCI/data/singularity/isocirc_x86_64.sif"
+
+outdir: "/projects/dog/anastasia/PCI_benchmark/run2_mouse_in_silico_realistic/results"
+
+min_reads_per_circ: 1
+mapq_threshold: 0
+initial_tile: 1
+rescue_tile: 5
+
+total_reads: 400000
+
+run_cirilong: true
+run_isocirc: true
+run_circnick: true
