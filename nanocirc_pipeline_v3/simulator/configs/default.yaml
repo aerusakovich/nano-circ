@@ -1,0 +1,149 @@
+seed: 42
+total_reads: 100000
+isoform_mean: 1.0
+isoform_max: 3
+min_intron_length: 100
+max_attempts_multiplier: 50
+shortfall_warn_threshold: 0.95
+min_circle_length: 50
+max_circle_length: 50000
+min_reads_per_circrna: 2
+terminal_exon_prob: 0.075
+same_bsj_isoform_prob: 0.4
+splice_search_max_adjustment:
+  ecirna: 10
+  eicirna: 10
+  cirna: 10
+  antisense: 30
+  intergenic: 30
+antisense_biotypes:
+- antisense
+- antisense_RNA
+- sense_antisense
+antisense_name_pattern: -AS\d*$
+type_fractions:
+  ecirna: 0.545
+  eicirna: 0.355
+  cirna: 0.014
+  antisense: 0.015
+  intergenic: 0.071
+length_distributions:
+  ecirna:
+    min: 80
+    q1: 200
+    median: 393
+    q3: 700
+    max: 3000
+  eicirna:
+    min: 100
+    q1: 300
+    median: 519.5
+    q3: 900
+    max: 4000
+  cirna:
+    min: 80
+    q1: 150
+    median: 314.5
+    q3: 600
+    max: 2000
+  antisense:
+    min: 80
+    q1: 200
+    median: 393
+    q3: 700
+    max: 3000
+  intergenic:
+    min: 80
+    q1: 180
+    median: 365
+    q3: 650
+    max: 2500
+exon_count_distributions:
+  ecirna:
+    '1': 0.115
+    '2': 0.323
+    '3': 0.445
+    '4': 0.149
+    5+: 0.193
+  eicirna:
+    '1': 0.082
+    '2': 0.179
+    '3': 0.213
+    '4': 0.183
+    5+: 0.343
+  cirna:
+    '1': 0.594
+    '2': 0.241
+    '3': 0.094
+    '4': 0.071
+    5+: 0.0
+  antisense:
+    '1': 0.115
+    '2': 0.323
+    '3': 0.445
+    '4': 0.149
+    5+: 0.193
+  intergenic:
+    '1': 0.35
+    '2': 0.289
+    '3': 0.197
+    '4': 0.093
+    5+: 0.069
+splice_site_distributions:
+  ecirna:
+    GT-AG: 1.0
+    GC-AG: 0.0
+    AT-AC: 0.0
+    other: 0.0
+  eicirna:
+    GT-AG: 0.998
+    GC-AG: 0.001
+    AT-AC: 0.0002
+    other: 0.0008
+  cirna:
+    GT-AG: 0.912
+    GC-AG: 0.05
+    AT-AC: 0.008
+    other: 0.03
+  antisense:
+    GT-AG: 0.95
+    GC-AG: 0.03
+    AT-AC: 0.005
+    other: 0.015
+  intergenic:
+    GT-AG: 0.505
+    GC-AG: 0.2
+    AT-AC: 0.05
+    other: 0.245
+exon_skip_prob:
+  ecirna: 0.05
+  eicirna: 0.05
+  antisense: 0.05
+intron_retention_prob:
+  eicirna: 0.7
+copy_number_ranges:
+- - 1
+  - 3
+- - 3
+  - 6
+- - 6
+  - 10
+- - 10
+  - 15
+- - 15
+  - 20
+- - 20
+  - 50
+- - 50
+  - 100
+- - 100
+  - 1500
+copy_number_probabilities:
+- 0.3
+- 0.3
+- 0.2
+- 0.1
+- 0.05
+- 0.03
+- 0.015
+- 0.005

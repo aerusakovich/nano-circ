@@ -1,0 +1,36 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.3.0-0
+
+# Build from simulator/new/ so the %files sources below resolve correctly:
+#   apptainer build containers/nanocirc-sim.sif containers/nanocirc-sim.def
+# (needs to run where apptainer/singularity is installed -- on this cluster
+# that's a compute node, not the login node: `srun -p short --pty apptainer build ...`)
+
+%files
+    environment.yml /opt/nanocirc-sim/environment.yml
+    pyproject.toml /opt/nanocirc-sim/pyproject.toml
+    nanocirc_sim /opt/nanocirc-sim/nanocirc_sim
+    configs /opt/nanocirc-sim/configs
+
+%post
+    mamba env update -n base -f /opt/nanocirc-sim/environment.yml
+    mamba clean -a -y
+    pip install --no-deps /opt/nanocirc-sim
+
+%environment
+    export LC_ALL=C.UTF-8
+    # Apptainer binds $HOME by default; without this, a user's own
+    # ~/.local/lib/pythonX/site-packages can silently shadow this env's
+    # pinned packages (numpy, pysam, etc.) at runtime.
+    export PYTHONNOUSERSITE=1
+
+%runscript
+    exec nanocirc-sim "$@"
+
+%test
+    nanocirc-sim --help
+    minimap2 --version
+
+%labels
+    Author nanocirc-sim
+    Version 0.1.0

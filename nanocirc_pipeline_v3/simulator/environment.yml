@@ -1,0 +1,14 @@
+name: nanocirc-sim
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.9
+  - numpy
+  - pandas
+  - pysam
+  - tqdm
+  - pyyaml
+  - pytest
+  - minimap2      # only used by `nanocirc-sim check-bsj`, batched (not in the generation hot path)
+  - pip

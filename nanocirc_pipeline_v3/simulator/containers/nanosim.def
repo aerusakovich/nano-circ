@@ -1,0 +1,33 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.3.0-0
+
+# The quay.io/biocontainers/nanosim images (tested: 3.1.0--hdfd78af_0 and
+# 3.2.3--hdfd78af_2) are broken: sklearn is compiled against numpy<2 ABI but
+# the image resolves numpy>=2.0 at runtime ("numpy.dtype size changed").
+# Pinning numpy<2 explicitly here forces conda's solver to pick a
+# numpy-2-compatible build of sklearn/HTSeq instead.
+
+%post
+    mamba create -y -n nanosim -c conda-forge -c bioconda python=3.9 "numpy<2" nanosim=3.2.3 minimap2 samtools
+    mamba clean -a -y
+
+%environment
+    export PATH=/opt/conda/envs/nanosim/bin:$PATH
+    export LC_ALL=C.UTF-8
+    # Apptainer binds $HOME by default; without this, a user's own
+    # ~/.local/lib/pythonX/site-packages (if it has numpy et al. installed
+    # outside any container) silently shadows this env's pinned packages.
+    export PYTHONNOUSERSITE=1
+
+%runscript
+    exec "$@"
+
+%test
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate nanosim
+    read_analysis.py --version
+    simulator.py --version
+
+%labels
+    Author nanocirc-sim
+    Tool NanoSim 3.2.3 (numpy<2 pinned)

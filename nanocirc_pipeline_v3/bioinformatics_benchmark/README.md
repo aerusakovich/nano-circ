@@ -1,0 +1,154 @@
+# nanocirc-benchmark
+
+Benchmark for long-read circRNA callers and quantifiers. It scores structural precision/recall, read-count correlation, and detection sensitivity against ground truth.
+
+It does not run any caller itself. It reads outputs already produced by nf-core/nanocirc and the 4 competing tools (isoCirc, circFL-seq, CIRI-long, CircNick-LRS), and scores them.
+
+## History
+
+This is the third version of the benchmark analysis in this repo that was motivated by development of nanocirc pipeline and closing the limitations of the previous benchmark.
+
+`manuscript_v1/5_performance_metrics/` had 7 separate scripts (one for runtime/memory, one for type and length distributions, one for UpSet overlap plots, one for tool-pair combinations, one for precision/recall/F1, one for expression correlation). Each had its own hardcoded genome, GTF, and BED12 paths, and only compared 3 raw tools (CIRI-long, isoCirc, CircNick) with no config file.
+
+`manuscript_v2` moved simulation, tool execution, and BED12 conversion into a Nextflow pipeline for reproducibility. Resource usage (runtime/memory) moved into a Nextflow module (`performance.nf`), reading Nextflow's own trace file. The actual scoring (precision/recall, type, length, UpSet, expression) stayed a separate shell and R/Python script (`Visualisation/plots.sh`) with the same hardcoded paths as v1, and still only the same 3 raw tools.
+
+Compared to our earlier benchmark (Rusakovich et al., 2026), this version (v3) differs in four ways:
+
+1. We found a real bug in `bedtools intersect` when `--split` and `-f`/`-r` are used together (details below). This bug made the earlier benchmark undercount exon-aware detection for every tool. Please consult v3 plots for renewed benchmark plots.
+2. All four tools now run from container images, with upstream bug fixes applied (see Containers below).
+3. circFL-seq is scored for the first time, alongside the other three tools.
+4. Structural matching now also includes BSJ-based matching, both exact (`strict_bsj`) and with tolerance (`relaxed_bsj`, tested at ±5bp and ±10bp), not just exon-based matching.
+
+### The bedtools `--split`/`-f` bug
+
+`bedtools intersect --split -f X -r` looks correct: it runs with no error or warning and gives plausible-looking output. But it does not do what its flags suggest.
+
+The `bedtools intersect` documentation defines `--split` as: "Treat 'split' BAM (i.e., having an 'N' CIGAR operation) or BED12 entries as distinct BED intervals." In practice, for BED12 records, `--split` with `-f` flag only fixes the numerator of the overlap fraction: it counts overlap over exon blocks only. The denominator stays the full genomic span (end minus start), not the true block length. For any multi-exon record with large introns, the true fraction is much higher than what bedtools reports, and the call gets silently dropped.
+
+Real example: two records with the same 5 blocks (716bp of real block length, but a 28,340bp genomic span) have a true reciprocal overlap of 1.000, but bedtools reports 716/28,340 = 0.025, far below any real threshold.
+
+On one real comparison (CIRI-long vs CircNick-LRS BED12, one mouse sample, threshold 0.95):
+
+| Metric | Value |
+| --- | --- |
+| Raw overlapping pairs (before threshold) | 19,905 |
+| Correct method (`-wo` + Python fraction), passing pairs | 663 |
+| bedtools `-f -r`, A→B passing pairs | 359 |
+| bedtools `-f -r`, B→A passing pairs | 424 |
+| Agreement between methods | 357 |
+| Pairs found in only one direction | 139 |
+| False negatives from the bug | 306 (46%) |
+| False positives from the bug | 2 |
+| Jaccard agreement between methods | 53.7% |
+
+Two more problems, beyond the false negatives: `bedtools -r -f` with `-wa -wb` can report a false positive pair (A only partly covers B, but still gets included, because A also has a good match to a different B record elsewhere in the file). And the result is not symmetric: swapping which file is `-a` and which is `-b` changes which pairs pass, since the denominator depends on whichever record is `-a`.
+
+The fix, what v3 does: run `bedtools intersect --split -wo` to get the raw overlap in base pairs, then compute the fraction itself, `overlap_bp / sum(blockSizes)`, for each record. This is symmetric, and uses each record's real block length as the denominator.
+
+### Containers
+
+None of the four tools originally came with a container. Docker and Singularity images for all four are built and published at https://github.com/aerusakovich/containers_circRNA_tools (DOI: 10.5281/zenodo.19202962), on Quay.io, tested on Linux x86_64. Several images also fix real upstream bugs that otherwise cause silent failures or crashes:
+
+- `quay.io/anrusakovich/ciri-long`: Python 3.8, CIRI-long installed with pip. Giving it too many CPU cores can cause out-of-memory errors, if that happens, use fewer cores.
+- `quay.io/anrusakovich/isocirc`: Python 3.11, bedtools ≥2.27.0, minimap2 ≥2.11.
+- `quay.io/anrusakovich/circfl-seq`: Python 3.9, minimap2, samtools, bedtools, TRF, TideHunter, plus 4 bug fixes.
+- `quay.io/anrusakovich/circnick-lrs`: Python 3.7.6, bedtools 2.29.2, samtools 1.9, pblat 2.5, NanoFilt, deeptools, plus 2 bug fixes. Ships with pre-built human and mouse reference indexes, so no reference setup is needed at runtime.
+
+CIRI-long and circFL-seq need AVX2-compatible hardware (`--constraint=avx2` in Slurm). On HPC and Slurm, use Singularity, not Docker.
+
+### Other method changes in v3
+
+Beyond the bedtools fix above, the scoring method changed in a few more ways:
+
+- **Strand check.** v1 and v2's precision/recall/F1 scoring never checked strand. A call on the wrong strand still counted as a true positive if the coordinates overlapped enough. v3 requires the strand to match as well, except for intergenic calls, which have no biologically meaningfull strand.
+- **antisense type.** v1 and v2's ground truth had 4 circRNA types (eciRNA, EIciRNA, ciRNA, intergenic), no antisense type. Now as simulator expanded to this type, evaluation also has been added. 
+- **Matching strategies.** v1 and v2 only had one kind of threshold: an arbitrary reciprocal overlap fraction (25%, 50%, 75%, or 95%, picked per script). v3 adds a boundary-tolerance match (`relaxed_bsj`: both ends independently within N bp of ground truth, tested at ±5bp and ±10bp) and an exact match (`strict_bsj`), on top of the corrected exon-overlap match (`exon_based`) described above.
+- **Read-count matching.** To decide which tool call and which ground-truth locus are "the same circRNA" for the expression correlation plots, v1 used a fixed 95% bedtools reciprocal-overlap match, the same kind of check found buggy for TP/FP/FN scoring (see History). v3 instead reuses its own boundary-tolerance match (both ends within N bp of ground truth, the same check `relaxed_bsj` uses) for this too, so there is no overlap-fraction threshold to pick at all.
+- **Tools scored.** v1 and v2 only scored CIRI-long, isoCirc, and CircNick. v3 adds circFL-seq and nanocirc pipeline's 4 confidence tiers.
+
+Packaging changed too: one config file instead of hardcoded paths in each script, and its own BED12 I/O and bedtools wrapper built in, as well as tests for all used methods.
+
+## Install
+
+```bash
+conda env create -f environment.yml
+conda activate nanocirc-benchmark
+pip install -e .
+```
+
+Or run it straight from the source tree, no install needed:
+
+```bash
+PYTHONPATH=. python -m nanocirc_benchmark.cli ...
+```
+
+## Quick start
+
+```bash
+nanocirc-benchmark all \
+  --dataset-root /path/to/benchmark_dataset \
+  --species mouse \
+  --config configs/default.yaml
+```
+
+This runs every metric module, in order, and writes every table and plot under `<dataset_root>/benchmark/`. Add `--gtf path/to/annotation.gtf` to also run type classification. Skip it, and that one module is left out.
+
+Each module can also run on its own:
+
+```bash
+nanocirc-benchmark performance --dataset-root ... --species mouse --config ...
+```
+
+Subcommands: `performance`, `expression`, `sensitivity`, `type-classification`, `overlap`, `length`, `reproducibility`.
+
+See `scripts/run_benchmark.sbatch` for a ready-to-submit SLURM version of the command above.
+
+## Expected dataset layout
+
+```
+<dataset_root>/
+├── fastq/<run>.fastq.gz
+├── ground_truth/<run>_ground_truth.tsv
+├── results/<species>/circrna/<run>/...            per-run tool + NanoCirc outputs
+├── results/<species>/circrna/crossrun/<species>/<tier>/<species>_<tier>_crossrun.bed12
+└── benchmark/
+    ├── gt_prefiltered/<run>_gt_prefiltered.bed12   GT restricted to loci with a confirmed circular read in this run
+    └── <species>.genome                            bedtools-style chrom-sizes file
+```
+
+`fastq/`, `ground_truth/`, `results/`, `gt_prefiltered/`, and `<species>.genome` must already exist before you run this package. They come from the simulator or your own real-data setup, not from this package. Everything else under `benchmark/` is written by this package.
+
+## Metric modules
+
+- **`performance`**: structural precision/recall/F1 for every caller (4 tools plus NanoCirc's 4 confidence tiers), every run, and 3 match strategies (`strict_bsj`, `relaxed_bsj`, `exon_based`). Writes `benchmark_metrics_<species>_<tag>.csv` and a precision/recall scatter plot.
+- **`expression`**: read-count correlation (Pearson, Spearman, R²) between each caller and ground truth, for the same 3 match strategies as `performance`. Writes one CSV and one scatter/heatmap plot per strategy: `expression_correlation_<species>.csv`/`.png` for `relaxed_bsj` (the long-standing default, unsuffixed for backward compatibility), plus `_strict_bsj` and `_exon_based` suffixed versions.
+- **`sensitivity`**: does a caller find the circRNA at all, split by ground-truth expression level (Low/Medium/High). Writes a CSV and plot.
+- **`type-classification`**: classifies every circRNA into one of 5 types (`ecirna`, `eicirna`, `cirna`, `antisense`, `intergenic`), the same way nanocirc's own pipeline does. Needs `--gtf`. Writes a CSV and plot per match strategy.
+- **`overlap`**: an UpSet-style plot showing which circRNAs each caller finds, and where callers agree or disagree. Makes both an exon-based and a relaxed-BSJ version, since a caller can score very differently on each.
+- **`length`**: mature (spliced) length of true-positive calls, by caller. Also makes a TP/FP/FN heatmap, reusing `performance`'s own output (run `performance` first).
+- **`reproducibility`**: a pairwise scatter matrix comparing read counts across every caller and tier, including ground truth, for the same 3 match strategies as `performance`. Writes `reproducibility_pairs_<species>.png` for `relaxed_bsj` (unsuffixed default), plus `_strict_bsj` and `_exon_based` suffixed versions.
+
+## Notes on how matching works
+
+- **Coordinate matching uses a tolerance, not an exact match.** A caller's own called boundary is rarely identical, base for base, to ground truth. `matching.py` matches within a tolerance everywhere, not just in one place.
+- **Near-duplicate calls are collapsed, not summed.** If two catalog entries both land within tolerance of one true locus, they are treated as the same locus. Their read count is the max of the two, not the sum. Summing would double-count one real signal as two.
+- **Every raw overlap or distance check goes through bedtools, never a Python reimplementation of interval geometry.** Each of the 3 strategies uses a different bedtools call: `strict_bsj` checks exact reciprocal containment (`-f 1.0 -r`), `relaxed_bsj` slops each ground-truth boundary point by the tolerance and intersects it against the caller's own boundary point, `exon_based` gets raw overlap base pairs (`-wo --split`) and computes the fraction itself in Python. Only `exon_based` ever needed that last step, see the bedtools `--split`/`-f` bug in History for why calling bedtools' own `-f`/`-r` fraction flags directly was not safe for that one.
+- **Only true-positive calls are used for "what does a call look like" questions**, such as length or type. A call's length only means something once you know it matches a real circRNA.
+- **CircNick-LRS read counts are joined through its own BED12 file, not its native output file.** On a run needing `--circnick_liftover_chain`, the native file's own coordinates are still pre-liftover, so they do not match anything else. The BED12 file already has the corrected, post-liftover coordinates.
+- **Ground truth only contains circRNAs with a real confirmed circular read in that run.** `gt_prefiltered` is already restricted upstream (in the simulator, at the pool-select stage) to loci with at least one read that was checked and confirmed to actually cross the BSJ, not just a read that was simulated and labeled circular. A circRNA with zero confirmed reads in a run is left out of ground truth entirely, so no tool is scored against a locus it had no real evidence for in the data it was given.
+
+## FP and FN characterization scripts
+
+`scripts/fp_characterize_step1_match_gt.py` and `scripts/fp_characterize_step2_trace_reads.py` trace every false-positive call back to its supporting reads, and show what those reads really are (a real circular read at the wrong strand, at a different locus, boundary noise, or not circular at all). This is the analysis behind the "What are these false positives?" section of `docs/benchmark.md` (in the `nf_nanocirc_long_read` repo).
+
+`scripts/fn_characterize.py` compares every missed ground-truth circRNA against every found one, on length, copy number, expression, splice site, and gene context. This is the analysis behind the "What discovery still misses?" section.
+
+All three scripts need a real benchmark `dataset_root`, plus the matching `nanocirc_sim` `circRNA_metadata.tsv` and a UCSC RepeatMasker BED file. Run any of them with `--help` to see the full argument list.
+
+## Tests
+
+```bash
+pytest tests/
+```
+
+Tests cover the config loader, the coordinate-matching and near-duplicate-collapse logic, and path resolution. They do not need a real dataset. Full end-to-end runs need one, see `scripts/run_benchmark.sbatch`.

@@ -1,0 +1,53 @@
+bedtools_bin: bedtools
+
+gt_match_tolerance: 10
+
+structural_param_sets:
+  - tag: strict_5_90
+    bsj_tolerance: 5
+    min_overlap: 0.90
+  - tag: relaxed_10_75
+    bsj_tolerance: 10
+    min_overlap: 0.75
+
+sensitivity_bsj_tolerance: 10
+sensitivity_min_overlap: 0.75
+
+run_name_template: "{species}_run{i}"
+n_runs: 3
+
+tools:
+  - cirilong
+  - isocirc
+  - circnick
+  - circfl
+
+tool_labels:
+  cirilong: CIRI-long
+  isocirc: IsoCirc
+  circnick: CircNick-LRS
+  circfl: circFL-seq
+
+tool_colors:
+  cirilong: "#0072B2"
+  isocirc: "#009E73"
+  circnick: "#D55E00"
+  circfl: "#CC79A7"
+
+tiers:
+  - high_confidence
+  - balanced_precision
+  - balanced_recall
+  - discovery
+
+tier_labels:
+  high_confidence: "NanoCirc\nHigh confidence"
+  balanced_precision: "NanoCirc\nBalanced (Precision)"
+  balanced_recall: "NanoCirc\nBalanced (Recall)"
+  discovery: "NanoCirc\nDiscovery"
+
+tier_colors:
+  high_confidence: "#F1C40F"
+  balanced_precision: "#3EB489"
+  balanced_recall: "#87CEEB"
+  discovery: "#E63946"
