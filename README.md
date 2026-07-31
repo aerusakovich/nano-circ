@@ -10,6 +10,14 @@ This is a comprehensive bioinformatics pipeline for generating realistic simulat
 ![Computational Workflow for Nanopore Sequencing circRNA Simulation](https://drive.google.com/uc?export=view&id=1GEqbbmgli_PldVW9ClEypWZ2WXqb1mSj)
 The workflow integrates wet-lab Oxford Nanopore Technologies (ONT) read characteristics with computational simulation techniques. Panels A-C depict sequential stages of data processing and simulation: (A) initial feature extraction from circRNA databases and experimental reads, (B) generation of protocol-specific reference circRNA sequences, and (C) NanoSim-based simulation generating detailed computational read models. 
 
+## About v3
+
+After this study was published, we kept developing the simulator and the benchmark further. This work is tied to a new long-read circRNA detection pipeline nanocirc (https://github.com/aerusakovich/nanocirc_pipeline), and the updated code is in the `nanocirc_pipeline_v3` folder.
+
+v3 follows the same general logic as v1 and v2. It aims to address some limitations we found later, and to improve reproducibility, for example by running every tool in its own container, and by extending the benchmark to more matching strategies and more circRNA callers.
+
+v3 has our most recent results, but they are not peer reviewed yet. Please treat them as ongoing work, not as a reviewed update to the published study. See `nanocirc_pipeline_v3/simulator/README.md` and `nanocirc_pipeline_v3/bioinformatics_benchmark/README.md` for details.
+
 ## Features
 
 - **circRNA simulation**: Generates in silico reads that mimic the molecular and sequencing characteristics of circular RNAs based on real Nanopore sequencing data
