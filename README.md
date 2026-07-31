@@ -16,7 +16,7 @@ After this study was published, we kept developing the simulator and the benchma
 
 v3 follows the same general logic as v1 and v2. It aims to address some limitations we found later, and to improve reproducibility, for example by running every tool in its own container, and by extending the benchmark to more matching strategies and more circRNA callers.
 
-v3 has our most recent results, but they are not peer reviewed yet. Please treat them as ongoing work, not as a reviewed update to the published study. See `nanocirc_pipeline_v3/simulator/README.md` and `nanocirc_pipeline_v3/bioinformatics_benchmark/README.md` for details.
+v3 has our most recent results, but they are not peer reviewed yet. Please treat them as ongoing work, not as a reviewed update to the published study. See `nanocirc_pipeline_v3/simulator/README.md` and `nanocirc_pipeline_v3/benchmark/README.md` for details.
 
 ## Features
 
