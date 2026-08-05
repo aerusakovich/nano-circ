@@ -26,7 +26,8 @@
 #   OUTDIR           where to write reads + BSJ check results
 #
 # Optional:
-#   PROJECT_ROOT      default /nfs/sto-2/projects/cnt-000070/canine-genetics/nanocirc
+#   PROJECT_ROOT      default: current directory, so run from the repo root
+#                     or export PROJECT_ROOT before submitting
 #   NANOSIM_SIF        default $PROJECT_ROOT/simulator/new/containers/nanosim.sif
 #   NANOCIRC_SIM_SIF    default $PROJECT_ROOT/simulator/new/containers/nanocirc-sim.sif
 
@@ -41,7 +42,7 @@ set -euo pipefail
 : "${OUTDIR:?must set OUTDIR}"
 NANOSIM_SEED="${NANOSIM_SEED:-1}"
 
-PROJECT_ROOT="${PROJECT_ROOT:-/nfs/sto-2/projects/cnt-000070/canine-genetics/nanocirc}"
+PROJECT_ROOT="$(cd "${PROJECT_ROOT:-.}" && pwd)"
 NANOSIM_SIF="${NANOSIM_SIF:-$PROJECT_ROOT/simulator/new/containers/nanosim.sif}"
 NANOCIRC_SIM_SIF="${NANOCIRC_SIM_SIF:-$PROJECT_ROOT/simulator/new/containers/nanocirc-sim.sif}"
 THREADS="${SLURM_CPUS_PER_TASK:-8}"
@@ -51,7 +52,7 @@ export MPLCONFIGDIR="$OUTDIR/.mplcache"
 export APPTAINERENV_MPLCONFIGDIR=/tmp/mplcache
 mkdir -p "$MPLCONFIGDIR"
 
-BIND="--bind /nfs/sto-2:/nfs/sto-2"
+BIND="--bind $PROJECT_ROOT:$PROJECT_ROOT"
 APPTAINER_NANOSIM="apptainer exec $BIND $NANOSIM_SIF"
 APPTAINER_NANOCIRC="apptainer exec $BIND $NANOCIRC_SIM_SIF"
 

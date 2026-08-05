@@ -23,7 +23,8 @@
 #                  pooled/combined_reads.fastq, bsj_check/)
 #   OUTDIR         where to write selection output + the per-run datasets
 #
-# Optional: PROJECT_ROOT, NANOSIM_SIF, NANOCIRC_SIM_SIF,
+# Optional: PROJECT_ROOT (default: current directory, so run from the repo root
+#   or export PROJECT_ROOT before submitting), NANOSIM_SIF, NANOCIRC_SIM_SIF,
 #   FINAL_OUTDIR (default $OUTDIR/../final_balanced, each run written to
 #   $FINAL_OUTDIR/run<N>/), SKIP_CHAIN=1 to not auto-submit the linear jobs,
 #   TOPUP_READS_PER_DEFICIENT (default 500, single pass),
@@ -42,7 +43,7 @@ TOPUP_READS_PER_DEFICIENT="${TOPUP_READS_PER_DEFICIENT:-500}"
 N_RUNS="${N_RUNS:-3}"
 READS_PER_RUN="${READS_PER_RUN:-300000}"
 
-PROJECT_ROOT="${PROJECT_ROOT:-/nfs/sto-2/projects/cnt-000070/canine-genetics/nanocirc}"
+PROJECT_ROOT="$(cd "${PROJECT_ROOT:-.}" && pwd)"
 NANOSIM_SIF="${NANOSIM_SIF:-$PROJECT_ROOT/simulator/new/containers/nanosim.sif}"
 NANOCIRC_SIM_SIF="${NANOCIRC_SIM_SIF:-$PROJECT_ROOT/simulator/new/containers/nanocirc-sim.sif}"
 THREADS="${SLURM_CPUS_PER_TASK:-8}"
@@ -55,7 +56,7 @@ SCRIPTS_DIR="${SCRIPTS_DIR:-$PROJECT_ROOT/simulator/new/scripts}"
 mkdir -p "$OUTDIR"
 export APPTAINERENV_MPLCONFIGDIR=/tmp/mplcache
 
-BIND="--bind /nfs/sto-2:/nfs/sto-2"
+BIND="--bind $PROJECT_ROOT:$PROJECT_ROOT"
 APPTAINER_NANOSIM="apptainer exec $BIND $NANOSIM_SIF"
 APPTAINER_NANOCIRC="apptainer exec $BIND $NANOCIRC_SIM_SIF"
 
