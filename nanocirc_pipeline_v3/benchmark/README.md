@@ -21,18 +21,56 @@ Compared to our earlier benchmark (Rusakovich et al., 2026), this version (v3) d
 
 ### The bedtools `--split`/`-f` bug
 
-`bedtools intersect --split -f X -r` looks correct: it runs with no error or warning and gives plausible-looking output. But it does not do what its flags suggest.
+`bedtools intersect --split -f X -r` looks correct on paper. It runs with no error or warning and gives plausible-looking output. But once more than one `-b` record can overlap the same `-a` record, which is normal in real annotation files containing isoforms, it has a failure mode.
 
-The `bedtools intersect` documentation defines `--split` as: "Treat 'split' BAM (i.e., having an 'N' CIGAR operation) or BED12 entries as distinct BED intervals." In practice, for BED12 records, `--split` with `-f` flag only fixes the numerator of the overlap fraction: it counts overlap over exon blocks only. The denominator stays the full genomic span (end minus start), not the true block length. For any multi-exon record with large introns, the true fraction is much higher than what bedtools reports, and the call gets silently dropped.
+The bug happens when a query record has more than one candidate match nearby. bedtools first finds every `-b` record whose genomic span touches the `-a` record's span, exon-aware or not. Then, seemingly, instead of checking each candidate on its own, it adds up the block lengths of every candidate into one shared denominator and checks a single combined fraction for the whole group. If that combined number misses the threshold, every pair in the group is dropped, including ones that would pass fine by themselves.
 
-Real example: two records with the same 5 blocks (716bp of real block length, but a 28,340bp genomic span) have a true reciprocal overlap of 1.000, but bedtools reports 716/28,340 = 0.025, far below any real threshold.
+#### To reproduce it
+
+No special data needed, just two small BED12 files and bedtools (tested on 2.30.0):
+
+```
+$ cat > a.bed <<'EOF'
+chr1    1000    2000    A1    0    +    1000    2000    0    1    1000,    0,
+EOF
+
+$ cat > b.bed <<'EOF'
+chr1    1000    2000    B1_perfect_match    0    +    1000    2000    0    1    1000,    0,
+chr1    1000    6000    B2_different_isoform    0    +    1000    6000    0    2    1000,2000,    0,3000,
+EOF
+```
+
+A is a single 1000bp exon. B1 is an exact copy of A, same single exon, same coordinates. B2 is a different, longer isoform: it shares that same 1000bp exon with A, but also has an unrelated 2000bp exon further downstream, for 3000bp of exons in total. Neither A nor B1 nor B2 has anything to do with a threshold as low as 0.90, they should just match.
+
+First, intersect A against B1 only:
+
+```
+$ grep B1_perfect_match b.bed > b1_only.bed
+$ bedtools intersect -a a.bed -b b1_only.bed -split -r -f 0.90 -wa -wb
+```
+
+Output: one line. A and B1 match perfectly, fraction 1000/1000 = 1.000, as expected.
+
+But if we run the exact same command against the full `b.bed`, with B2 included:
+
+```
+$ bedtools intersect -a a.bed -b b.bed -split -r -f 0.90 -wa -wb
+```
+
+Output: empty. B1 disappears too, just because B2 is also in the file.
+
+Why we think it happens: bedtools adds B1's length (1000bp) and B2's length (3000bp) into one shared denominator, 4000bp, and checks a single combined fraction for the whole group: 1000/4000 = 0.25. That fails at f=0.90, so bedtools drops the whole group, including the record that was a perfect match. Changing `-f` on this same file confirms the exact breakpoint: it passes up to `f=0.25` and fails from `f=0.26` on, matching 1000/4000.
+
+To confirm this is the actual mechanism, we read the bedtools2 source (`BlockMgr::findBlockedOverlaps`, in `src/utils/FileRecordTools/Records/BlockMgr.cpp`) and built small test cases where we knew the expected number in advance. Two identical B records at the same spot (829bp each) break the match once the threshold goes above 829/1658 = 0.500, exactly as predicted from the source. Three identical copies break it above 829/2487 = 0.333.
+
+This bug is specific to `-split` use and doesn't reproduce itself with the `-split` dropped. It has been reported as an issue `#1142` in `arq5x/bedtools2`.
 
 On one real comparison (CIRI-long vs CircNick-LRS BED12, one mouse sample, threshold 0.95):
 
 | Metric | Value |
 | --- | --- |
 | Raw overlapping pairs (before threshold) | 19,905 |
-| Correct method (`-wo` + Python fraction), passing pairs | 663 |
+| Correct method (`-wo` + hand calculation), passing pairs | 663 |
 | bedtools `-f -r`, A→B passing pairs | 359 |
 | bedtools `-f -r`, B→A passing pairs | 424 |
 | Agreement between methods | 357 |
@@ -41,9 +79,28 @@ On one real comparison (CIRI-long vs CircNick-LRS BED12, one mouse sample, thres
 | False positives from the bug | 2 |
 | Jaccard agreement between methods | 53.7% |
 
-Two more problems, beyond the false negatives: `bedtools -r -f` with `-wa -wb` can report a false positive pair (A only partly covers B, but still gets included, because A also has a good match to a different B record elsewhere in the file). And the result is not symmetric: swapping which file is `-a` and which is `-b` changes which pairs pass, since the denominator depends on whichever record is `-a`.
+A few of the 306 discarded pairs, all of which are exact or near-exact matches by the correct method, and all of which have more than one candidate sharing their locus:
 
-The fix, what v3 does: run `bedtools intersect --split -wo` to get the raw overlap in base pairs, then compute the fraction itself, `overlap_bp / sum(blockSizes)`, for each record. This is symmetric, and uses each record's real block length as the denominator.
+| A record | B record | correct fraction | bedtools `-r -f 0.95` |
+| --- | --- | --- | --- |
+| chr10:105369950-105370778 | mmu_circ_1788_Tmtc2 | 1.000 | dropped (3 candidates share this locus) |
+| chr11:104350487-104378826 | mmu_circ_0341_Kansl1 | 1.000 | dropped (6 candidates share this locus) |
+| chr10:12436281-12455564 | mmu_circ_0565_Utrn | 1.000 | dropped (5 candidates share this locus) |
+
+Symmetry: since the group of candidates that get summed together depends on whichever file is `-b`, swapping `-a` and `-b` changes the result for the same pair:
+
+| A record | B record | A -> B | B -> A |
+| --- | --- | --- | --- |
+| chr10:6828885-6830497 | mmu_circ_2346_Oprm1 | pass | fail |
+| chr10:109764518-109765006 | mmu_circ_5638_Nav3 | fail | pass |
+| chr11:106096991-106123906 | mmu_circ_3369_Map3k3 | pass | fail |
+
+All three pairs above have identical coordinates and identical exon structure on both sides. There is no biological reason for direction to matter here.
+
+Two more problems, beyond the false negatives. First, because bedtools decides pass or fail for the whole group of candidates at once, a pair that only partly covers its match can still get reported, as long as some other candidate at the same spot makes the group's combined fraction pass. Second, the result is not symmetric, for the reason in the table above: whichever file is given as `-b` is the one whose records get grouped and summed, so `-a`/`-b` order changes the outcome even for a pair that matches perfectly in both directions.
+
+The fix, what v3 does: run `bedtools intersect --split -wo` to get the raw overlap in base pairs, then compute the fraction ourselves, one pair at a time. This checks every pair on its own, with no grouping, so it is symmetric and always uses each record's own real block length as the denominator.
+
 
 ### Containers
 
