@@ -13,7 +13,7 @@ import pandas as pd
 from matplotlib.colors import Normalize
 from scipy import stats
 
-from .bed_io import read_bed
+from .bed_io import empty_bed_df, read_bed
 from .callers import (load_nanocirc_locus_counts, load_tier_membership,
                        load_tool_locus_counts, nanocirc_catalog_bed_df)
 from .gt import count_reads, load_gt_loci
@@ -44,7 +44,11 @@ def build_long_df(paths, config, species: str, strategy: str = "relaxed_bsj") ->
 
         for tool in config.tools:
             call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
-            call_bed_df = read_bed(paths.caller_bed_path(run, tool, config.tiers)) if strategy == "exon_based" else None
+            if strategy == "exon_based":
+                call_bed_path = paths.caller_bed_path(run, tool, config.tiers)
+                call_bed_df = read_bed(call_bed_path) if call_bed_path.exists() else empty_bed_df()
+            else:
+                call_bed_df = None
             matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
             for bid, gt_expr in gt_map.items():
                 pred = sum(n for n, _ in matched.get(bid, []))
@@ -88,7 +92,8 @@ def build_tool_pair_df(paths, config, species: str, strategy: str = "relaxed_bsj
             call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
             agg = {}
             if strategy == "exon_based":
-                call_bed_df = read_bed(paths.caller_bed_path(run, tool, config.tiers))
+                call_bed_path = paths.caller_bed_path(run, tool, config.tiers)
+                call_bed_df = read_bed(call_bed_path) if call_bed_path.exists() else empty_bed_df()
                 count_by_coord = {(r.chrom, r.start, r.end, r.strand): r for r in call_df.itertuples()}
                 call_bed_by_id = {r.row_id: r for r in call_bed_df.itertuples()}
                 pairs = matcher.exon_based_pairs(call_bed_df, nc_bed_df, work, min_overlap=config.tp_min_overlap)

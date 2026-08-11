@@ -18,7 +18,7 @@ import pandas as pd
 from matplotlib.colors import Normalize
 from scipy.stats import gaussian_kde
 
-from .bed_io import read_bed
+from .bed_io import empty_bed_df, read_bed
 from .callers import (load_nanocirc_locus_counts, load_tier_membership,
                        load_tool_locus_counts, nanocirc_catalog_bed_df)
 from .gt import load_gt_loci
@@ -46,7 +46,11 @@ def build_caller_wide_df(paths, config, species: str, strategy: str = "relaxed_b
 
         for tool in config.tools:
             call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
-            call_bed_df = read_bed(paths.caller_bed_path(run, tool, config.tiers)) if strategy == "exon_based" else None
+            if strategy == "exon_based":
+                call_bed_path = paths.caller_bed_path(run, tool, config.tiers)
+                call_bed_df = read_bed(call_bed_path) if call_bed_path.exists() else empty_bed_df()
+            else:
+                call_bed_df = None
             matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
             for bid in gt_map:
                 per_bsj[bid][tool] = sum(n for n, _ in matched.get(bid, []))

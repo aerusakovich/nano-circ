@@ -83,8 +83,10 @@ def plot_pr_scatter(paths, config, species: str, metrics_df: pd.DataFrame, out_p
         return (row["recall"], row["precision"])
 
     strategies = ["exon_based", "relaxed_bsj", "strict_bsj"]
+    present_callers = set(pooled.index.get_level_values("caller"))
     competitors = {config.tool_labels[t]: {"color": config.tool_colors[t],
-                                            "pts": [pt(t, s) for s in strategies]} for t in config.tools}
+                                            "pts": [pt(t, s) for s in strategies]}
+                   for t in config.tools if t in present_callers}
     nc_modes = {config.tier_labels[t].replace("\n", " "): {"color": config.tier_colors[t],
                                                             "pts": [pt(t, s) for s in strategies]} for t in config.tiers}
 

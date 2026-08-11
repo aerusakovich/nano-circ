@@ -65,6 +65,12 @@ def _add_reproducibility_parser(subparsers):
     return p
 
 
+def _add_isoform_detection_parser(subparsers):
+    p = subparsers.add_parser("isoform-detection", help="Isoform-level detection accuracy within shared-BSJ multi-isoform families")
+    _add_common_args(p)
+    return p
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nanocirc-benchmark", description="circRNA quantifier/caller benchmark suite")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
@@ -77,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_overlap_parser(subparsers)
     _add_length_parser(subparsers)
     _add_reproducibility_parser(subparsers)
+    _add_isoform_detection_parser(subparsers)
     return parser
 
 
@@ -173,6 +180,16 @@ def _cmd_reproducibility(args) -> int:
     config.validate()
     paths = _build_paths(args, config)
     run_reproducibility_analysis(paths, config, args.species)
+    return 0
+
+
+def _cmd_isoform_detection(args) -> int:
+    from .isoform_detection import run_isoform_detection_analysis
+
+    config = _load_config(args)
+    config.validate()
+    paths = _build_paths(args, config)
+    run_isoform_detection_analysis(paths, config, args.species)
     return 0
 
 

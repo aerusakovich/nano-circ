@@ -89,6 +89,8 @@ Then pass `--config configs/fitted.yaml` to `simulate`. If you skip this step, `
 
 Types with too few real examples in the database keep the default config's values instead of being fit from noise.
 
+Fitting only changes statistical parameters (lengths, exon counts, splice sites, type mix). circRNAs are built by sampling real gene/transcript structure from the GTF, not copied from the database. Even so, since both draw from the same finite set of exon boundaries and genes, some of simulated circRNAs can end up identical to entries already present in the database. For example, when we checked one simulator run against `circbase_circatlas_merged.bed12` (human, ~740K entries), 3.5% of one benchmark run's simulated circRNAs matched a real entry's exact BSJ and full exon structure, and another 4.5% matched the BSJ alone with a different internal structure, summing up to total 8% having an exact BSJ hit. This confirms that the simulator is generating molecules, that closely resemble circRNA, since some of its constructs, generated fully in silico by algorithms, have already been reported as real biology.
+
 ### 4. Check the reads (mandatory for long reads)
 
 If you simulate long reads from `circRNAs.fa` (for example with NanoSim), you must check that "circular" reads really cross the BSJ. Some reads land inside one copy of the sequence and never touch the join.

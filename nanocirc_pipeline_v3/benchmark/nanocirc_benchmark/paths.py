@@ -98,6 +98,7 @@ class Paths:
             "isocirc": base / "isocirc" / "isocirc_output" / "isocirc.out",
             "circfl": base / "circfl_seq" / f"{run}_circfl" / "RG" / "circFL_Normal_pass.txt",
             "cirilong": base / "ciri_long" / f"{run}_cirilong" / f"{run}.reads",
+            "cirilong_info": base / "ciri_long" / f"{run}_cirilong" / f"{run}.info",
             "circnick": base / "circnick_lrs" / f"{run}_circnick" / run / f"{run}.circRNA_candidates.annotated.txt",
         }
 

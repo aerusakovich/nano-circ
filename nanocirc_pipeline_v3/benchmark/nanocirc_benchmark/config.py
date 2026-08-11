@@ -16,6 +16,13 @@ def _default_structural_param_sets():
     ]
 
 
+def _default_isoform_overlap_param_sets():
+    return [
+        {"tag": "reciprocal_overlap_99", "min_overlap": 0.99},
+        {"tag": "reciprocal_overlap_90", "min_overlap": 0.90},
+    ]
+
+
 def _default_tools():
     return ["cirilong", "isocirc", "circnick", "circfl"]
 
@@ -85,6 +92,16 @@ class BenchmarkConfig:
     overlap_min_overlap: float = 0.95
     overlap_bsj_tolerance: int = 10
 
+    # Isoform-detection module's reciprocal_overlap strategies: how close a
+    # caller's exon structure must be to a specific GT isoform to count as
+    # that isoform (not just its BSJ), rather than a different isoform at
+    # the same locus. 99% allows only trivial boundary noise; 90% allows a
+    # real chunk of mismatched sequence while still requiring the same
+    # overall structure, not a different one. Both tighter than
+    # overlap_min_overlap on purpose, since this discriminates between real
+    # isoforms, not just "was a locus found at all".
+    isoform_overlap_param_sets: list = field(default_factory=_default_isoform_overlap_param_sets)
+
     run_name_template: str = "{species}_run{i}"
     n_runs: int = 3
 
@@ -124,6 +141,9 @@ class BenchmarkConfig:
         for p in self.structural_param_sets:
             if not {"tag", "bsj_tolerance", "min_overlap"} <= set(p):
                 raise ValueError(f"structural_param_sets entry missing required keys: {p}")
+        for p in self.isoform_overlap_param_sets:
+            if not {"tag", "min_overlap"} <= set(p):
+                raise ValueError(f"isoform_overlap_param_sets entry missing required keys: {p}")
 
     @property
     def quant_keys(self) -> list:

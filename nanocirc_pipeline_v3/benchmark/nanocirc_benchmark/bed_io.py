@@ -42,6 +42,13 @@ def read_bed(path, dedup=True):
     return df
 
 
+def empty_bed_df():
+    """Empty DataFrame with read_bed's column set, for a tool that produced
+    no output file at all (e.g. disabled via --run_<tool> false) rather than
+    an empty one."""
+    return pd.DataFrame(columns=BED12_COLS + ["row_id", "spliced_len"])
+
+
 def dedup_by_bsj(df):
     """Collapse to one row per (chrom, start, end, strand) BSJ, keeping the
     first isoform seen at each. strict_bsj_counts and relaxed_bsj_counts are

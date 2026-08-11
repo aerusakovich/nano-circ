@@ -172,11 +172,17 @@ def gene_overlap_lookup(loci, gene_bed, bedtools_bin, work_dir, tag):
     return hits
 
 
+TIERS = ["discovery", "balanced_recall", "balanced_precision", "high_confidence"]
+TOOLS = ["cirilong", "circfl", "isocirc", "circnick"]
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dataset-root", required=True, type=Path)
     p.add_argument("--species", required=True)
     p.add_argument("--runs", nargs="+", required=True)
+    p.add_argument("--caller", default="discovery", choices=TIERS + TOOLS,
+                   help="Nanocirc tier or raw tool: which caller's misses to characterize")
     p.add_argument("--sim-metadata", required=True, type=Path)
     p.add_argument("--genome-fasta", required=True, type=Path, help="Plain FASTA with a matching .fai index")
     p.add_argument("--gtf", required=True, type=Path)
@@ -192,7 +198,9 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from nanocirc_benchmark.bed_io import read_bed
     from nanocirc_benchmark.matching import StructuralMatcher
+    from nanocirc_benchmark.paths import Paths
 
+    paths = Paths(args.dataset_root, args.species, args.runs)
     work_dir = args.out_prefix.parent
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -204,7 +212,7 @@ def main():
 
     per_run_rows = []
     for run in args.runs:
-        bed_path = args.dataset_root / "results" / args.species / "circrna" / run / "merged" / f"{run}_discovery.bed12"
+        bed_path = paths.caller_bed_path(run, args.caller, TIERS)
         gt_path = args.dataset_root / "benchmark" / "gt_prefiltered" / f"{run}_gt_prefiltered.bed12"
         caller_df = read_bed(bed_path)
         gt_df = read_bed(gt_path)

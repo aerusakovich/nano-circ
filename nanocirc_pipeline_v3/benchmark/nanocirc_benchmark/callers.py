@@ -3,7 +3,7 @@
 Coordinate conventions (0-based BED-style start/end):
   isocirc.out              : startCoor0based/endCoor already match (no offset)
   circFL_Normal_pass.txt   : native start is 1-based -> unified_start = start - 1
-  ciri-long .reads (circ_id "chr:start-end") : native start is 1-based -> unified_start = start - 1
+  ciri-long .info (circ_id "chr:start-end" in attributes) : native start is 1-based -> unified_start = start - 1
   circnick *.annotated.txt : own chrom/start/end are pre-liftover whenever
                              the dataset needed --circnick_liftover_chain
                              (e.g. a human hg19->hg38 run). This can be tens
@@ -24,16 +24,17 @@ from .bed_io import read_bed
 
 
 def parse_isocirc(f, bed12_path=None) -> dict:
-    """readIDs per (chrom, start, end, strand) locus. Groups by coordinates
-    only, not by isocirc.out's own geneStrand column: that column is the
-    overlapping gene's strand, not the circRNA's own strand, so it is often
-    "NA" (no gene overlap) or comma-repeated ("+,+", several same-strand
-    genes). The clean strand comes from isocirc.bed instead, the same file
-    every other matching stage already treats as authoritative."""
+    """Native readCount per (chrom, start, end, strand) locus. Groups by
+    coordinates only, not by isocirc.out's own geneStrand column: that
+    column is the overlapping gene's strand, not the circRNA's own strand,
+    so it is often "NA" (no gene overlap) or comma-repeated ("+,+", several
+    same-strand genes). The clean strand comes from isocirc.bed instead, the
+    same file every other matching stage already treats as authoritative."""
     df = pd.read_csv(f, sep="\t", skiprows=1, dtype=str)
     df.columns = [c.lstrip("#") for c in df.columns]
     df["start"] = df["startCoor0based"].astype(int)
     df["end"] = df["endCoor"].astype(int)
+    df["readCount"] = df["readCount"].astype(int)
 
     strand_by_coord = {}
     if bed12_path is not None:
@@ -52,35 +53,38 @@ def parse_isocirc(f, bed12_path=None) -> dict:
             # geneStrand, cleaning up "NA" and comma-repeated values.
             vals = {v.split(",")[0] for v in g["geneStrand"] if v and v != "NA"}
             strand = next(iter(vals), ".")
-        reads = set()
-        for ids in g["readIDs"].dropna():
-            reads.update(x for x in ids.split(",") if x)
-        out[(chrom, int(start), int(end), strand)] = reads
+        out[(chrom, int(start), int(end), strand)] = int(g["readCount"].sum())
     return out
 
 
 def parse_circfl(f) -> dict:
+    """Native readCount per (chrom, start, end, strand) locus."""
     df = pd.read_csv(f, sep="\t", dtype=str)
     df["start0"] = df["start"].astype(int) - 1
     df["end"] = df["end"].astype(int)
+    df["readCount"] = df["readCount"].astype(float)
     out = {}
     for (chrom, start, end, strand), g in df.groupby(["chr", "start0", "end", "strand"]):
-        reads = set()
-        for ids in g["readID"].dropna():
-            reads.update(x for x in ids.split(",") if x)
-        out[(chrom, int(start), int(end), strand)] = reads
+        out[(chrom, int(start), int(end), strand)] = int(g["readCount"].sum())
     return out
 
 
 def parse_cirilong(f) -> dict:
-    df = pd.read_csv(f, sep="\t", dtype=str)
-    loc = df["circ_id"].str.extract(r"^(?P<chrom>[^:]+):(?P<start>\d+)-(?P<end>\d+)$")
+    """Native read count per (chrom, start, end, strand) locus, from
+    CIRI-long's own .info file (one row per isoform, GTF-style, score column
+    = read support), not the .reads file (one row per supporting read)."""
+    df = pd.read_csv(f, sep="\t", header=None,
+                      names=["chrom", "source", "feature", "start", "end",
+                             "score", "strand", "frame", "attributes"])
+    df["circ_id"] = df["attributes"].str.extract(r'circ_id "([^"]+)"')
+    loc = df["circ_id"].str.extract(r"^(?P<circ_chrom>[^:]+):(?P<circ_start>\d+)-(?P<circ_end>\d+)$")
     df = df.join(loc)
-    df["start0"] = df["start"].astype(int) - 1
-    df["end"] = df["end"].astype(int)
+    df["start0"] = df["circ_start"].astype(int) - 1
+    df["end"] = df["circ_end"].astype(int)
+    df["score"] = df["score"].astype(int)
     out = {}
-    for (chrom, start, end, strand), g in df.groupby(["chrom", "start0", "end", "strand"]):
-        out[(chrom, int(start), int(end), strand)] = set(g["read_id"])
+    for (chrom, start, end, strand), g in df.groupby(["circ_chrom", "start0", "end", "strand"]):
+        out[(chrom, int(start), int(end), strand)] = int(g["score"].sum())
     return out
 
 
@@ -111,26 +115,37 @@ def parse_circnick_native_counts(f, bed12_path) -> dict:
 
 def load_tool_locus_counts(paths, run: str, tool: str, tiers: list = None) -> pd.DataFrame:
     """chrom/start/end/strand/n_reads DataFrame, one row per locus that tool
-    called. The column is not named "count": pandas Series and itertuples
+    called. Uses each tool's own native read count in every case (isoCirc,
+    circFL-seq, CIRI-long, CircNick-LRS all report one).
+    The column is not named "count": pandas Series and itertuples
     both already have a built-in .count() method, so a column with that
     name would silently return the method, not the value."""
     native = paths.native_tool_paths(run)
     if tool == "isocirc":
-        bed12_path = paths.caller_bed_path(run, "isocirc", tiers or [])
-        readsets = parse_isocirc(native["isocirc"], bed12_path)
+        native_path, bed12_path = native["isocirc"], paths.caller_bed_path(run, "isocirc", tiers or [])
     elif tool == "circfl":
-        readsets = parse_circfl(native["circfl"])
+        native_path, bed12_path = native["circfl"], None
     elif tool == "cirilong":
-        readsets = parse_cirilong(native["cirilong"])
+        native_path, bed12_path = native["cirilong_info"], None
     elif tool == "circnick":
-        bed12_path = paths.caller_bed_path(run, "circnick", tiers or [])
-        counts = parse_circnick_native_counts(native["circnick"], bed12_path)
-        rows = [{"chrom": c, "start": s, "end": e, "strand": st, "n_reads": v} for (c, s, e, st), v in counts.items()]
-        return pd.DataFrame(rows)
+        native_path, bed12_path = native["circnick"], paths.caller_bed_path(run, "circnick", tiers or [])
     else:
         raise ValueError(f"unknown tool: {tool}")
-    rows = [{"chrom": c, "start": s, "end": e, "strand": st, "n_reads": len(v)} for (c, s, e, st), v in readsets.items()]
-    return pd.DataFrame(rows)
+
+    columns = ["chrom", "start", "end", "strand", "n_reads"]
+    if not native_path.exists():
+        return pd.DataFrame(columns=columns)
+
+    if tool == "isocirc":
+        counts = parse_isocirc(native_path, bed12_path)
+    elif tool == "circfl":
+        counts = parse_circfl(native_path)
+    elif tool == "cirilong":
+        counts = parse_cirilong(native_path)
+    elif tool == "circnick":
+        counts = parse_circnick_native_counts(native_path, bed12_path)
+    rows = [{"chrom": c, "start": s, "end": e, "strand": st, "n_reads": v} for (c, s, e, st), v in counts.items()]
+    return pd.DataFrame(rows, columns=columns)
 
 
 def load_nanocirc_locus_counts(paths, run: str) -> pd.DataFrame:

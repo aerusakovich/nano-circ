@@ -3,6 +3,7 @@ write all tables + plots under <dataset_root>/benchmark/.
 """
 from .config import BenchmarkConfig
 from .expression import run_expression_analysis
+from .isoform_detection import run_isoform_detection_analysis
 from .length import plot_contingency_heatmap, plot_gt_coverage_stacked, plot_length_barplot
 from .overlap import run_overlap_analysis_both
 from .paths import Paths
@@ -44,6 +45,7 @@ def run_all(dataset_root, species: str, config: BenchmarkConfig = None, runs: li
     plot_gt_coverage_stacked(paths, config, species, metrics_csv_tag=relaxed_tag)
     run_overlap_analysis_both(paths, config, species)
     run_reproducibility_analysis(paths, config, species)
+    isoform_detection_results = run_isoform_detection_analysis(paths, config, species)
 
     classification_df = None
     if paths.gtf_path is not None:
@@ -53,5 +55,5 @@ def run_all(dataset_root, species: str, config: BenchmarkConfig = None, runs: li
 
     return {
         "metrics_by_tag": metrics_by_tag, "correlation": corr_df, "sensitivity": struct_sens,
-        "classification": classification_df,
+        "classification": classification_df, "isoform_detection": isoform_detection_results,
     }

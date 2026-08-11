@@ -230,7 +230,7 @@ def run_type_classification(paths, config, species: str) -> dict:
         caller_df_pooled = df[df["caller"] != "ground_truth"].groupby("caller")[
             [f"tp_{t}" for t in ALL_TYPES] + [f"fp_{t}" for t in ALL_TYPES]].sum()
 
-        out_png = paths.plot_dir / f"classification_circfl_style_{species}_{tag}.png"
+        out_png = paths.plot_dir / f"type_classification_{species}_{tag}.png"
         _plot_classification(gt_pooled, caller_df_pooled, quant_keys, quant_labels, species, out_png,
                               len(paths.runs), n_reads, label)
         out[strategy] = df

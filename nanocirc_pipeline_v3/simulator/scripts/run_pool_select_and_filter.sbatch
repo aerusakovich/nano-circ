@@ -11,8 +11,8 @@
 #SBATCH --exclusive
 
 # Builds N_RUNS independent replicate datasets from a mega-pool: pool-select,
-# optional top-up for deficient circRNAs, then draw N_RUNS Poisson-sampled
-# runs and self-chain each into run_linear_matched.sbatch. See README.
+# iterative shortfall-weighted top-up for deficient circRNAs, then draw N_RUNS
+# Poisson-sampled runs and self-chain each into run_linear_matched.sbatch. See README.
 #
 # Required env vars:
 #   DATASET_DIR    nanocirc-sim simulate output dir
@@ -27,7 +27,14 @@
 #   or export PROJECT_ROOT before submitting), NANOSIM_SIF, NANOCIRC_SIM_SIF,
 #   FINAL_OUTDIR (default $OUTDIR/../final_balanced, each run written to
 #   $FINAL_OUTDIR/run<N>/), SKIP_CHAIN=1 to not auto-submit the linear jobs,
-#   TOPUP_READS_PER_DEFICIENT (default 500, single pass),
+#   TOPUP_YIELD_RATE (default 0.15; conservative confirmed-reads-per-simulated-
+#   read estimate used to size each top-up round from the remaining shortfall;
+#   lower = more margin, more reads requested per round),
+#   MAX_TOPUP_ROUNDS (default 8; top-up repeats against the remaining
+#   shortfall until it hits 0 or stops improving, capped here),
+#   MIN_TOPUP_PROGRESS (default 0.02; stop early if a round improves the
+#   shortfall by less than this fraction -- the rest is likely unreachable
+#   for those circRNAs, e.g. too short/unalignable, not worth chasing),
 #   N_RUNS (default 3), READS_PER_RUN (default 300000)
 
 set -euo pipefail
@@ -39,7 +46,9 @@ set -euo pipefail
 : "${CIRC_OUTDIR:?must set CIRC_OUTDIR}"
 : "${OUTDIR:?must set OUTDIR}"
 FINAL_OUTDIR="${FINAL_OUTDIR:-$OUTDIR/../final_balanced}"
-TOPUP_READS_PER_DEFICIENT="${TOPUP_READS_PER_DEFICIENT:-500}"
+TOPUP_YIELD_RATE="${TOPUP_YIELD_RATE:-0.15}"
+MAX_TOPUP_ROUNDS="${MAX_TOPUP_ROUNDS:-8}"
+MIN_TOPUP_PROGRESS="${MIN_TOPUP_PROGRESS:-0.02}"
 N_RUNS="${N_RUNS:-3}"
 READS_PER_RUN="${READS_PER_RUN:-300000}"
 
@@ -64,31 +73,34 @@ mega_pool="$CIRC_OUTDIR/pooled/combined_reads.fastq"
 mega_bsj_reads="$CIRC_OUTDIR/bsj_check/bsj_check_reads.tsv"
 
 echo "=== Step 1: Selecting up to n_reads_target confirmed reads per circRNA from the mega-pool ==="
+current_bsj_reads="$mega_bsj_reads"
+current_mega_fastq="$mega_pool"
+current_dir="$OUTDIR/selection"
+mkdir -p "$current_dir"
 $APPTAINER_NANOCIRC nanocirc-sim pool-select \
-    --bsj-reads "$mega_bsj_reads" \
+    --bsj-reads "$current_bsj_reads" \
     --metadata "$DATASET_DIR/circRNA_metadata.tsv" \
-    --mega-fastq "$mega_pool" \
-    --outdir "$OUTDIR/selection"
+    --mega-fastq "$current_mega_fastq" \
+    --outdir "$current_dir" \
+    --shortfall-profile-out "$current_dir/shortfall_profile.tsv"
 
-n_deficient=$(($(wc -l < "$OUTDIR/selection/deficient_circle_ids.txt" 2>/dev/null || echo 0)))
-final_selected="$OUTDIR/selection/selected_reads.fastq"
-bsj_reads_for_subsample="$mega_bsj_reads"
-mega_fastq_for_subsample="$mega_pool"
+total_shortfall=$(tail -n +2 "$current_dir/shortfall_profile.tsv" 2>/dev/null | awk -F'\t' '{s+=$3} END{print s+0}')
+echo "=== Initial shortfall: $total_shortfall reads ==="
 
-if [ "$n_deficient" -gt 0 ]; then
-    echo "=== Step 2: $n_deficient circRNA(s) had zero confirmed reads in the mega-pool: single top-up pass ==="
-    topup_dir="$OUTDIR/topup"
+# shortfall_profile.tsv has TPM = each circRNA's own shortfall, so
+# simulator.py's abundance-proportional sampling puts more reads where the
+# gap is bigger instead of spreading the budget flat across every circRNA.
+# Repeats against the *remaining* shortfall each round (not the original),
+# since a flat TPM-proportional draw never lands exactly on target per locus.
+round=0
+while [ "$total_shortfall" -gt 0 ] && [ "$round" -lt "$MAX_TOPUP_ROUNDS" ]; do
+    round=$(( round + 1 ))
+    echo "=== Top-up round $round: total shortfall $total_shortfall reads, shortfall-weighted top-up pass ==="
+    topup_dir="$OUTDIR/topup_round${round}"
     mkdir -p "$topup_dir"
 
-    # A NanoSim expression profile listing only the deficient circRNAs, all
-    # at equal TPM=1.0. NanoSim drops any row with TPM<=0, so this alone
-    # is enough to focus the whole read budget on exactly this set.
-    {
-        echo -e "ID\tcount\tTPM"
-        awk '{print $0"\t0\t1.0"}' "$OUTDIR/selection/deficient_circle_ids.txt"
-    } > "$topup_dir/topup_profile.tsv"
-
-    n_topup_reads=$(( n_deficient * TOPUP_READS_PER_DEFICIENT ))
+    n_topup_reads=$(awk -v s="$total_shortfall" -v y="$TOPUP_YIELD_RATE" 'BEGIN{v=s/y; if (v<1) v=1; printf "%d", v}')
+    echo "=== Requesting $n_topup_reads top-up reads (shortfall/${TOPUP_YIELD_RATE} yield estimate) ==="
     $APPTAINER_NANOSIM simulator.py transcriptome \
         -rg "$GENOME_FA" \
         -rt "$DATASET_DIR/circRNAs.fa" \
@@ -96,8 +108,8 @@ if [ "$n_deficient" -gt 0 ]; then
         -o "$topup_dir/topup" \
         -n "$n_topup_reads" \
         -b guppy \
-        -e "$topup_dir/topup_profile.tsv" \
-        --seed 200 \
+        -e "$current_dir/shortfall_profile.tsv" \
+        --seed "$(( 200 + round ))" \
         -t "$THREADS" \
         --fastq \
         --no_model_ir
@@ -117,28 +129,55 @@ if [ "$n_deficient" -gt 0 ]; then
         --outdir "$topup_dir/bsj_check" \
         --threads "$THREADS"
 
-    echo "=== Step 3: Re-selecting, now including the top-up pool ==="
     combined_mega="$topup_dir/mega_plus_topup.fastq"
-    cat "$mega_pool" "$topup_pool" > "$combined_mega"
+    cat "$current_mega_fastq" "$topup_pool" > "$combined_mega"
     combined_bsj_reads="$topup_dir/combined_bsj_reads.tsv"
-    head -1 "$mega_bsj_reads" > "$combined_bsj_reads"
-    tail -n +2 "$mega_bsj_reads" >> "$combined_bsj_reads"
+    head -1 "$current_bsj_reads" > "$combined_bsj_reads"
+    tail -n +2 "$current_bsj_reads" >> "$combined_bsj_reads"
     tail -n +2 "$topup_dir/bsj_check/bsj_check_reads.tsv" >> "$combined_bsj_reads"
 
+    # Both current_mega_fastq and current_bsj_reads (the previous round's files,
+    # read above) live under the previous round's topup dir. Only safe to drop
+    # it now that both have been fully read into this round's own files.
+    if [ "$round" -gt 1 ]; then
+        rm -rf "$OUTDIR/topup_round$((round - 1))"
+    fi
+
+    next_dir="$OUTDIR/selection_round${round}"
+    mkdir -p "$next_dir"
     $APPTAINER_NANOCIRC nanocirc-sim pool-select \
         --bsj-reads "$combined_bsj_reads" \
         --metadata "$DATASET_DIR/circRNA_metadata.tsv" \
         --mega-fastq "$combined_mega" \
-        --outdir "$OUTDIR/selection_final"
+        --outdir "$next_dir" \
+        --shortfall-profile-out "$next_dir/shortfall_profile.tsv"
 
-    final_selected="$OUTDIR/selection_final/selected_reads.fastq"
-    bsj_reads_for_subsample="$combined_bsj_reads"
-    mega_fastq_for_subsample="$combined_mega"
-    still_deficient=$(wc -l < "$OUTDIR/selection_final/deficient_circle_ids.txt" 2>/dev/null || echo 0)
-    echo "=== After top-up: $still_deficient circRNA(s) still have zero confirmed reads (reported, not hidden) ==="
+    current_bsj_reads="$combined_bsj_reads"
+    current_mega_fastq="$combined_mega"
+    current_dir="$next_dir"
+    prev_shortfall="$total_shortfall"
+    total_shortfall=$(tail -n +2 "$current_dir/shortfall_profile.tsv" 2>/dev/null | awk -F'\t' '{s+=$3} END{print s+0}')
+    echo "=== After round $round: remaining shortfall $total_shortfall reads (was $prev_shortfall) ==="
+
+    if [ "$total_shortfall" -gt 0 ]; then
+        stop_now=$(awk -v p="$prev_shortfall" -v c="$total_shortfall" -v m="$MIN_TOPUP_PROGRESS" \
+            'BEGIN{ if (p<=0) { print 0 } else { print (((p-c)/p) < m) ? 1 : 0 } }')
+        if [ "$stop_now" = "1" ]; then
+            echo "=== Stopping top-up early: round $round barely improved the shortfall (below ${MIN_TOPUP_PROGRESS} fraction). Remaining $total_shortfall reads are likely unreachable for these circRNAs (e.g. too short/unalignable for this protocol), not worth chasing further. ==="
+            break
+        fi
+    fi
+done
+
+if [ "$total_shortfall" -gt 0 ]; then
+    echo "=== After $round top-up round(s): $total_shortfall reads still short across the catalog (reported, not hidden) ==="
 else
-    echo "=== No deficient circRNAs: every circRNA got its full n_reads_target already ==="
+    echo "=== Every circRNA reached its full n_reads_target after $round top-up round(s) ==="
 fi
+
+final_selected="$current_dir/selected_reads.fastq"
+bsj_reads_for_subsample="$current_bsj_reads"
+mega_fastq_for_subsample="$current_mega_fastq"
 
 n_circ_full_pool=$(( $(wc -l < "$final_selected") / 4 ))
 echo "=== Full proportional pool: $n_circ_full_pool confirmed circular reads across all circRNAs ==="
