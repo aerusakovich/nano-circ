@@ -155,6 +155,14 @@ Getting one isoform right while missing or misclassifying others is the most com
 <img src="images/benchmark/equal_expression_correlation_circfl.png" width="100%"/>
 <img src="images/benchmark/equal_expression_correlation_isocirc.png" width="100%"/>
 
+<img src="images/benchmark/equal_expression_correlation_ciri_long_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/equal_expression_correlation_circfl_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/equal_expression_correlation_isocirc_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/equal_expression_correlation_ciri_long_exon_based.png" width="100%"/>
+<img src="images/benchmark/equal_expression_correlation_circfl_exon_based.png" width="100%"/>
+<img src="images/benchmark/equal_expression_correlation_isocirc_exon_based.png" width="100%"/>
+
 Tool may call a correct circRNA, but misquantify it. It is important to measure, as for many research tasks that rely on differential expression precise circRNA quantification on locus and isoform is required. We measured it with Pearson r, 
 Spearman rho, R², read-count correlation against ground truth and cross-method agreement, per tool/tier. 
 
@@ -230,9 +238,6 @@ n grows from `full` to `relaxed` as the overlap requirement loosens (e.g. discov
 <img src="images/benchmark/equal_expression_correlation_circfl_relaxed.png" width="100%"/>
 <img src="images/benchmark/equal_expression_correlation_isocirc_relaxed.png" width="100%"/>
 
-<img src="images/benchmark/equal_sensitivity_by_expression_ciri_long.png" width="100%"/>
-<img src="images/benchmark/equal_sensitivity_by_expression_circfl.png" width="100%"/>
-
 Detection sensitivity by ground-truth expression tertile (low/mid/high read count):
 
 | Tier | Protocol | Low | Mid | High |
@@ -252,10 +257,24 @@ Detection sensitivity by ground-truth expression tertile (low/mid/high read coun
 
 Sensitivity grows with expression at every tier and protocol (more reads means more chances to be called). `balanced_recall` is close to `discovery` (within 1-3 points at every tertile), while `balanced_precision` is in between `discovery` and `high_confidence`. circFL-seq protocol allows the highest sensitivity at every tertile and tier; isoCirc protocol the lowest, most severely at `high_confidence`, where even highly-expressed circRNAs are barely detected (3.0% vs circFL-seq's 16.7%).
 
+<img src="images/benchmark/equal_sensitivity_by_expression_ciri_long.png" width="100%"/>
+<img src="images/benchmark/equal_sensitivity_by_expression_circfl.png" width="100%"/>
 <img src="images/benchmark/equal_sensitivity_by_expression_isocirc.png" width="100%"/>
+
+Same tertiles, matched at the `full`/`strict`/`relaxed` isoform tiers instead of structural comparison:
+
+<img src="images/benchmark/equal_sensitivity_by_expression_ciri_long_isoform.png" width="100%"/>
+<img src="images/benchmark/equal_sensitivity_by_expression_circfl_isoform.png" width="100%"/>
+<img src="images/benchmark/equal_sensitivity_by_expression_isocirc_isoform.png" width="100%"/>
 
 <img src="images/benchmark/equal_reproducibility_pairs_ciri_long.png" width="100%"/>
 <img src="images/benchmark/equal_reproducibility_pairs_circfl.png" width="100%"/>
+
+<img src="images/benchmark/equal_reproducibility_pairs_ciri_long_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/equal_reproducibility_pairs_circfl_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/equal_reproducibility_pairs_ciri_long_exon_based.png" width="100%"/>
+<img src="images/benchmark/equal_reproducibility_pairs_circfl_exon_based.png" width="100%"/>
 
 Pairwise read-count agreement across every tool/tier combination, ground truth included. nanocirc's own tiers agree with ground truth better, than for any other caller and agree with each other almost perfectly, since they share the same remap-based quantification regardless of which tool found the locus. Agreement of raw tool calls with ground truth is looser and protocol-dependent; isoCirc shows the widest scatter against every other caller and ground truth on every protocol, consistent with its weak expression correlation above, CIRI-long shows the best agreement with ground truth among single tools on 2 out of 3 protocols.
 
@@ -269,6 +288,36 @@ Same reproducibility matrix, matched at the `full`/`strict`/`relaxed` isoform ti
 
 <img src="images/benchmark/equal_reproducibility_pairs_ciri_long_relaxed.png" width="100%"/>
 <img src="images/benchmark/equal_reproducibility_pairs_circfl_relaxed.png" width="100%"/>
+
+### Caller overlap
+
+Ground-truth loci recovered by each of the four tools are pooled across runs and drawn as an UpSet-style plot, where a locus counts as recovered if it was matched in at least one run. Two versions were used in the original benchmark paper: exon-based, which requires correct internal structure, and relaxed BSJ, which requires only genomic position. This is now extended to all six matching strategies used elsewhere in this benchmark: strict BSJ and exon-based (exact/structural), relaxed BSJ (coordinate-tolerant), and the full/strict/relaxed isoform tiers (structure plus BSJ tolerance, tightest to loosest).
+
+The point of this plot is agreement, not any one tool's own recall. Of every circRNA any tool finds, only about 13% are found by all four tools together (12.5% on the species benchmark, 12.9% on the wet-lab CIRI-long protocol), and roughly half are found by exactly one tool. Each tool is effectively viewing circRNAs through its own lens, with no single reliable "ground truth caller" to defer to. That disagreement is the core motivation for NanoCirc: a naive union of all four tools' calls would inherit every tool's false positives, and a naive intersection would keep only the rare loci every tool happens to agree on, trading away most of the recall. NanoCirc's confidence tiers reconcile this with vote-based merging instead of a plain union/intersection rule, as described in the pipeline's own methods documentation.
+
+<img src="images/benchmark/upset_plot_equal_ciri_long_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_circfl_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_equal_ciri_long.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_circfl.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_equal_ciri_long_exon_based.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_circfl_exon_based.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_exon_based.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_equal_ciri_long_full.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_circfl_full.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_full.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_equal_ciri_long_strict.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_circfl_strict.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_strict.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_equal_ciri_long_relaxed.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_circfl_relaxed.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_relaxed.png" width="100%"/>
 
 </details>
 
@@ -801,14 +850,32 @@ The plots below cover this CIRI-long-excluded configuration in the same depth as
 <img src="images/benchmark/equal_isoform_family_completeness_reciprocal_overlap_90_isocirc_no_cirilong.png" width="100%"/>
 
 <img src="images/benchmark/equal_expression_correlation_isocirc_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/equal_expression_correlation_isocirc_strict_bsj_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/equal_expression_correlation_isocirc_exon_based_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_expression_correlation_isocirc_full_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_expression_correlation_isocirc_strict_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_expression_correlation_isocirc_relaxed_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_sensitivity_by_expression_isocirc_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/equal_sensitivity_by_expression_isocirc_isoform_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_reproducibility_pairs_isocirc_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/equal_reproducibility_pairs_isocirc_strict_bsj_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/equal_reproducibility_pairs_isocirc_exon_based_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_reproducibility_pairs_isocirc_full_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_reproducibility_pairs_isocirc_strict_no_cirilong.png" width="100%"/>
 <img src="images/benchmark/equal_reproducibility_pairs_isocirc_relaxed_no_cirilong.png" width="100%"/>
+
+### Caller overlap
+
+Ground-truth loci recovered by each of the four tools are pooled across runs and drawn as an UpSet-style plot, where a locus counts as recovered if it was matched in at least one run. Two versions were used in the original benchmark paper: exon-based, which requires correct internal structure, and relaxed BSJ, which requires only genomic position. This is now extended to all six matching strategies used elsewhere in this benchmark: strict BSJ and exon-based (exact/structural), relaxed BSJ (coordinate-tolerant), and the full/strict/relaxed isoform tiers (structure plus BSJ tolerance, tightest to loosest).
+
+The point of this plot is agreement, not any one tool's own recall. Of every circRNA any tool finds, only about 13% are found by all four tools together (12.5% on the species benchmark, 12.9% on the wet-lab CIRI-long protocol), and roughly half are found by exactly one tool. Each tool is effectively viewing circRNAs through its own lens, with no single reliable "ground truth caller" to defer to. That disagreement is the core motivation for NanoCirc: a naive union of all four tools' calls would inherit every tool's false positives, and a naive intersection would keep only the rare loci every tool happens to agree on, trading away most of the recall. NanoCirc's confidence tiers reconcile this with vote-based merging instead of a plain union/intersection rule, as described in the pipeline's own methods documentation.
+
+<img src="images/benchmark/upset_plot_equal_isocirc_strict_bsj_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_exon_based_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_full_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_strict_no_cirilong.png" width="100%"/>
+<img src="images/benchmark/upset_plot_equal_isocirc_relaxed_no_cirilong.png" width="100%"/>
 
 </details>
 
@@ -934,6 +1001,12 @@ Getting one isoform right while missing or misclassifying others is the most com
 <img src="images/benchmark/expression_correlation_human.png" width="100%"/>
 <img src="images/benchmark/expression_correlation_mouse.png" width="100%"/>
 
+<img src="images/benchmark/expression_correlation_human_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/expression_correlation_mouse_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/expression_correlation_human_exon_based.png" width="100%"/>
+<img src="images/benchmark/expression_correlation_mouse_exon_based.png" width="100%"/>
+
 Read-count correlation against ground truth (right panel) and cross-method agreement (left panel), per tool/tier. Each cell shows three metrics:
 
 - **Pearson r**: linear correlation between predicted and true counts. Sensitive to whether counts scale proportionally, not just in the same direction.
@@ -1012,6 +1085,11 @@ n grows from `full` to `relaxed` on both species as the overlap requirement loos
 <img src="images/benchmark/sensitivity_by_expression_human.png" width="100%"/>
 <img src="images/benchmark/sensitivity_by_expression_mouse.png" width="100%"/>
 
+Same tertiles, matched at the `full`/`strict`/`relaxed` isoform tiers instead of structural comparison:
+
+<img src="images/benchmark/sensitivity_by_expression_human_isoform.png" width="100%"/>
+<img src="images/benchmark/sensitivity_by_expression_mouse_isoform.png" width="100%"/>
+
 Detection sensitivity broken down by ground-truth expression tertile: low-expressed circRNAs are structurally harder to detect correctly than high-expressed ones, for every tool.
 
 | Tier | Species | Low | Mid | High |
@@ -1026,6 +1104,12 @@ Mouse is more sensitive than human at every tertile and tier shown, widest at `d
 <img src="images/benchmark/reproducibility_pairs_human.png" width="100%"/>
 <img src="images/benchmark/reproducibility_pairs_mouse.png" width="100%"/>
 
+<img src="images/benchmark/reproducibility_pairs_human_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/reproducibility_pairs_mouse_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/reproducibility_pairs_human_exon_based.png" width="100%"/>
+<img src="images/benchmark/reproducibility_pairs_mouse_exon_based.png" width="100%"/>
+
 Pairwise read-count agreement across every tool/tier combination, ground truth included. As with the wet-lab-protocol benchmark above, nanocirc's own tiers agree with each other almost perfectly (diagonal points in every tier-vs-tier panel) since they share the same remap-based quantification; agreement against raw tool calls is looser, isoCirc again showing the widest scatter, consistent with its weaker Pearson r above.
 
 Same reproducibility matrix, matched at the `full`/`strict`/`relaxed` isoform tiers instead of structural comparison, so agreement is evaluated on isoform level, each real isoform scored against its own matched caller isoform (see [Isoform-level expression quantification](#isoform-level-expression-quantification-1) above).
@@ -1038,6 +1122,30 @@ Same reproducibility matrix, matched at the `full`/`strict`/`relaxed` isoform ti
 
 <img src="images/benchmark/reproducibility_pairs_human_relaxed.png" width="100%"/>
 <img src="images/benchmark/reproducibility_pairs_mouse_relaxed.png" width="100%"/>
+
+### Caller overlap
+
+Ground-truth loci recovered by each of the four tools are pooled across runs and drawn as an UpSet-style plot, where a locus counts as recovered if it was matched in at least one run. Two versions were used in the original benchmark paper: exon-based, which requires correct internal structure, and relaxed BSJ, which requires only genomic position. This is now extended to all six matching strategies used elsewhere in this benchmark: strict BSJ and exon-based (exact/structural), relaxed BSJ (coordinate-tolerant), and the full/strict/relaxed isoform tiers (structure plus BSJ tolerance, tightest to loosest).
+
+The point of this plot is agreement, not any one tool's own recall. Of every circRNA any tool finds, only about 13% are found by all four tools together (12.5% on the species benchmark, 12.9% on the wet-lab CIRI-long protocol), and roughly half are found by exactly one tool. Each tool is effectively viewing circRNAs through its own lens, with no single reliable "ground truth caller" to defer to. That disagreement is the core motivation for NanoCirc: a naive union of all four tools' calls would inherit every tool's false positives, and a naive intersection would keep only the rare loci every tool happens to agree on, trading away most of the recall. NanoCirc's confidence tiers reconcile this with vote-based merging instead of a plain union/intersection rule, as described in the pipeline's own methods documentation.
+
+<img src="images/benchmark/upset_plot_human_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/upset_plot_mouse_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_human.png" width="100%"/>
+<img src="images/benchmark/upset_plot_mouse.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_human_exon_based.png" width="100%"/>
+<img src="images/benchmark/upset_plot_mouse_exon_based.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_human_full.png" width="100%"/>
+<img src="images/benchmark/upset_plot_mouse_full.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_human_strict.png" width="100%"/>
+<img src="images/benchmark/upset_plot_mouse_strict.png" width="100%"/>
+
+<img src="images/benchmark/upset_plot_human_relaxed.png" width="100%"/>
+<img src="images/benchmark/upset_plot_mouse_relaxed.png" width="100%"/>
 
 </details>
 
@@ -1306,6 +1414,12 @@ eciRNA, ciRNA, and antisense are recovered well above the same tier's synthetic 
 <img src="images/benchmark/expression_correlation_database_human.png" width="100%"/>
 <img src="images/benchmark/reproducibility_pairs_database_human.png" width="100%"/>
 
+<img src="images/benchmark/expression_correlation_database_human_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/reproducibility_pairs_database_human_strict_bsj.png" width="100%"/>
+
+<img src="images/benchmark/expression_correlation_database_human_exon_based.png" width="100%"/>
+<img src="images/benchmark/reproducibility_pairs_database_human_exon_based.png" width="100%"/>
+
 Read-count correlation against ground truth, and pairwise cross-tool/tier agreement, per caller. Pearson r (relaxed-BSJ matching):
 
 | Caller | Database (human) |
@@ -1325,6 +1439,12 @@ isoCirc is again the weakest quantifier, and every nanocirc tier again correlate
 | --- | --- | --- | --- |
 | `discovery` | 28.5% | 53.5% | 61.6% |
 | `high_confidence` | 1.0% | 5.8% | 15.9% |
+
+<img src="images/benchmark/sensitivity_by_expression_database_human.png" width="100%"/>
+
+Same tertiles, matched at the `full`/`strict`/`relaxed` isoform tiers instead of structural comparison:
+
+<img src="images/benchmark/sensitivity_by_expression_database_human_isoform.png" width="100%"/>
 
 #### Isoform-level expression quantification
 
@@ -1378,6 +1498,19 @@ circNICK-lrs is by far the most affected caller here: its n drops from 5,409 at 
 <img src="images/benchmark/reproducibility_pairs_database_human_full.png" width="100%"/>
 <img src="images/benchmark/reproducibility_pairs_database_human_strict.png" width="100%"/>
 <img src="images/benchmark/reproducibility_pairs_database_human_relaxed.png" width="100%"/>
+
+### Caller overlap
+
+Ground-truth loci recovered by each of the four tools are pooled across runs and drawn as an UpSet-style plot, where a locus counts as recovered if it was matched in at least one run. Two versions were used in the original benchmark paper: exon-based, which requires correct internal structure, and relaxed BSJ, which requires only genomic position. This is now extended to all six matching strategies used elsewhere in this benchmark: strict BSJ and exon-based (exact/structural), relaxed BSJ (coordinate-tolerant), and the full/strict/relaxed isoform tiers (structure plus BSJ tolerance, tightest to loosest).
+
+The point of this plot is agreement, not any one tool's own recall. Of every circRNA any tool finds, only about 13% are found by all four tools together (12.5% on the species benchmark, 12.9% on the wet-lab CIRI-long protocol), and roughly half are found by exactly one tool. Each tool is effectively viewing circRNAs through its own lens, with no single reliable "ground truth caller" to defer to. That disagreement is the core motivation for NanoCirc: a naive union of all four tools' calls would inherit every tool's false positives, and a naive intersection would keep only the rare loci every tool happens to agree on, trading away most of the recall. NanoCirc's confidence tiers reconcile this with vote-based merging instead of a plain union/intersection rule, as described in the pipeline's own methods documentation.
+
+<img src="images/benchmark/upset_plot_database_human_strict_bsj.png" width="100%"/>
+<img src="images/benchmark/upset_plot_database_human.png" width="100%"/>
+<img src="images/benchmark/upset_plot_database_human_exon_based.png" width="100%"/>
+<img src="images/benchmark/upset_plot_database_human_full.png" width="100%"/>
+<img src="images/benchmark/upset_plot_database_human_strict.png" width="100%"/>
+<img src="images/benchmark/upset_plot_database_human_relaxed.png" width="100%"/>
 
 </details>
 

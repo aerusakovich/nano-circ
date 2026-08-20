@@ -14,8 +14,8 @@ from .bed_io import read_bed
 from .callers import (load_nanocirc_isoform_bed_counts, load_nanocirc_locus_counts, load_tier_membership,
                        load_tool_isoform_bed_counts, load_tool_locus_counts)
 from .gt import load_gt_loci
-from .matching import (ISOFORM_MATCH_TAGS, STRATEGY_TITLES, StructuralMatcher, collapse_near_duplicates,
-                        match_pairs_by_strategy, match_pairs_by_strategy_isoform_resolved, strategy_footnote)
+from .matching import (ISOFORM_MATCH_TAGS, STRATEGY_TITLES, StructuralMatcher, best_match_by_strategy_isoform_resolved,
+                        match_pairs_by_strategy, match_pairs_by_strategy_isoform_resolved_scored, strategy_footnote)
 
 _BED12_STRATEGIES = ("exon_based", "isoform_level") + ISOFORM_MATCH_TAGS
 
@@ -52,9 +52,13 @@ def build_caller_wide_df(paths, config, species: str, strategy: str = "relaxed_b
                 call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
                 call_bed_df = None
             if is_isoform_resolved:
-                matched = match_pairs_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work)
+                # Best structural match's own count, not a sum -- see expression.py's
+                # build_long_df for why isoform-resolved matching must not pool near-duplicate
+                # calls the way locus-level matching does.
+                matched = best_match_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work)
                 for key in per_key:
-                    per_key[key][tool] = sum(n for n, _ in matched.get(key, []))
+                    n, _ = matched.get(key, (0, None))
+                    per_key[key][tool] = n
             else:
                 matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
                 for key in per_key:
@@ -64,13 +68,15 @@ def build_caller_wide_df(paths, config, species: str, strategy: str = "relaxed_b
         nc_bed_df = load_nanocirc_isoform_bed_counts(paths, run, None, work) if strategy in _BED12_STRATEGIES else None
         tier_members = load_tier_membership(paths, config.tiers)
         if is_isoform_resolved:
-            nc_matched = match_pairs_by_strategy_isoform_resolved(strategy, nc_bed_df, gt_bed_df, config, matcher,
-                                                                    work, extra_col="base_bsj_id")
+            # Scored, not pre-collapsed: each tier only sees its own members, so the
+            # best-scoring candidate has to be picked per tier, after filtering.
+            nc_matched = match_pairs_by_strategy_isoform_resolved_scored(strategy, nc_bed_df, gt_bed_df, config,
+                                                                          matcher, work, extra_col="base_bsj_id")
             for tier in config.tiers:
                 members = tier_members[tier]
                 for key in per_key:
-                    candidates = [(n, src_bid) for n, src_bid in nc_matched.get(key, []) if src_bid in members]
-                    per_key[key][tier] = collapse_near_duplicates(candidates)
+                    candidates = [(n, score) for n, src_bid, score in nc_matched.get(key, []) if src_bid in members]
+                    per_key[key][tier] = max(candidates, key=lambda c: c[1])[0] if candidates else 0
         else:
             nc_matched = match_pairs_by_strategy(strategy, nc_df, gt_df, config, matcher, nc_bed_df, gt_bed_df,
                                                   work, extra_col="base_bsj_id")
@@ -78,7 +84,7 @@ def build_caller_wide_df(paths, config, species: str, strategy: str = "relaxed_b
                 members = tier_members[tier]
                 for key in per_key:
                     candidates = [(n, src_bid) for n, src_bid in nc_matched.get(key, []) if src_bid in members]
-                    per_key[key][tier] = collapse_near_duplicates(candidates)
+                    per_key[key][tier] = sum(n for n, _ in candidates)  # same rule as tools: sum near-duplicate matches
 
         rows.extend(per_key.values())
     return pd.DataFrame(rows)

@@ -380,12 +380,17 @@ class StructuralMatcher:
             return tp, fp, fn, matched_gt_row_ids
         return tp, fp, fn
 
-    def isoform_level_pairs(self, caller_df, gt_df, work: Path, tolerance: int, min_overlap: float):
+    def isoform_level_pairs(self, caller_df, gt_df, work: Path, tolerance: int, min_overlap: float,
+                             return_scores=False):
         """Same computation as isoform_level_counts, but returns the actual
         matched (caller_row_id, gt_row_id) pairs instead of two sets,
         mirroring exon_based_pairs's relationship to exon_based_counts.
         Used for isoform-level expression/reproducibility matching, not for
-        TP/FP/FN."""
+        TP/FP/FN.
+
+        return_scores: also return each pair's exon_score, for callers that
+        need to pick the single best-scoring pair per GT row (e.g. a
+        best-match read count) instead of just knowing a pair matched."""
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
 
@@ -431,6 +436,8 @@ class StructuralMatcher:
             if prev is None or exon_score > prev[1]:
                 best_for_caller[c_id] = (g_id, exon_score)
 
+        if return_scores:
+            return [(int(c_id[1:]), int(g_id[1:]), score) for c_id, (g_id, score) in best_for_caller.items()]
         return [(int(c_id[1:]), int(g_id[1:])) for c_id, (g_id, _) in best_for_caller.items()]
 
     @staticmethod
@@ -470,14 +477,16 @@ def match_to_gt(call_df, gt_df, tolerance, extra_col=None):
     return pairs_by_gt
 
 
-def _bed12_pairs(strategy, call_bed_df, gt_bed_df, config, matcher, work):
+def _bed12_pairs(strategy, call_bed_df, gt_bed_df, config, matcher, work, return_scores=False):
     if strategy == "exon_based":
         return matcher.exon_based_pairs(call_bed_df, gt_bed_df, work, min_overlap=config.tp_min_overlap)
     if strategy == "isoform_level":
         return matcher.isoform_level_pairs(call_bed_df, gt_bed_df, work, tolerance=config.gt_match_tolerance,
-                                            min_overlap=config.isoform_level_min_overlap)
+                                            min_overlap=config.isoform_level_min_overlap,
+                                            return_scores=return_scores)
     tol, min_ov = isoform_match_level_params(config, strategy)
-    return matcher.isoform_level_pairs(call_bed_df, gt_bed_df, work, tolerance=tol, min_overlap=min_ov)
+    return matcher.isoform_level_pairs(call_bed_df, gt_bed_df, work, tolerance=tol, min_overlap=min_ov,
+                                        return_scores=return_scores)
 
 
 def match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher=None, call_bed_df=None,
@@ -529,6 +538,42 @@ def match_pairs_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, c
     return pairs_by_gt_row
 
 
+def match_pairs_by_strategy_isoform_resolved_scored(strategy, call_bed_df, gt_bed_df, config, matcher, work,
+                                                      extra_col=None):
+    """Like match_pairs_by_strategy_isoform_resolved, but keeps each pair's
+    exon_score too, for callers that need to filter candidates (e.g. by
+    NanoCirc tier membership) before picking the best-scoring one from
+    whatever's left, rather than picking the single global best up front.
+    Returns gt_row_id -> list of (n_reads, extra_col value or None, exon_score)."""
+    if strategy not in ISOFORM_MATCH_TAGS:
+        raise ValueError(f"isoform-resolved matching only supports {ISOFORM_MATCH_TAGS}, got {strategy!r}")
+    pairs = _bed12_pairs(strategy, call_bed_df, gt_bed_df, config, matcher, work, return_scores=True)
+    call_bed_by_id = {r.row_id: r for r in call_bed_df.itertuples()}
+
+    pairs_by_gt_row = {}
+    for c_row_id, g_row_id, score in pairs:
+        c_bed = call_bed_by_id[c_row_id]
+        extra = c_bed.name.split("|")[0] if extra_col == "base_bsj_id" else (
+            getattr(c_bed, extra_col) if extra_col else None)
+        pairs_by_gt_row.setdefault(g_row_id, []).append((c_bed.n_reads, extra, score))
+    return pairs_by_gt_row
+
+
+def best_match_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work,
+                                             extra_col=None):
+    """Like match_pairs_by_strategy_isoform_resolved, but keeps only the
+    single best-scoring caller row per GT row (highest exon_score), instead
+    of pooling every qualifying caller row's reads into one number. Several
+    near-duplicate caller isoforms matching one true isoform are read as
+    "which one call is this", not summed -- summing would collapse
+    isoform-level scoring back into locus-level pooling, the exact thing
+    isoform-resolved matching exists to avoid.
+    Returns gt_row_id -> (n_reads, extra_col value or None)."""
+    scored = match_pairs_by_strategy_isoform_resolved_scored(strategy, call_bed_df, gt_bed_df, config, matcher,
+                                                               work, extra_col=extra_col)
+    return {g: max(candidates, key=lambda c: c[2])[:2] for g, candidates in scored.items()}
+
+
 def match_pred_to_pred(call_df, ref_df, tolerance):
     """Same tolerance match, but keyed to the reference call's own row index
     instead of a GT bsj_id. Used for caller-vs-caller comparisons with no
@@ -554,11 +599,3 @@ def match_pred_to_pred(call_df, ref_df, tolerance):
     return pairs
 
 
-def collapse_near_duplicates(candidates):
-    """candidates: [(n_reads, id), ...], all already matched to the same GT
-    locus by match_to_gt. These are near-duplicate reports of one true
-    circRNA, not independent counts, so summing them would double-count it.
-    Returns the max read count instead."""
-    if not candidates:
-        return 0
-    return max(n for n, _ in candidates)

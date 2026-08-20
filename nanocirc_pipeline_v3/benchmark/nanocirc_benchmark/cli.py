@@ -164,12 +164,12 @@ def _cmd_type_classification(args) -> int:
 
 
 def _cmd_overlap(args) -> int:
-    from .overlap import run_overlap_analysis_both
+    from .overlap import run_overlap_analysis_all
 
     config = _load_config(args)
     config.validate()
     paths = _build_paths(args, config)
-    run_overlap_analysis_both(paths, config, args.species)
+    run_overlap_analysis_all(paths, config, args.species)
     return 0
 
 

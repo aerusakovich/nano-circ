@@ -1,7 +1,15 @@
 """UpSet-style caller-overlap plot: every tool and NanoCirc tier matched
-against GT, pooled across runs. Made for both exon_based and relaxed_bsj
-strategies, since a caller can score differently on each. Only the top N
-intersections by size are plotted.
+against GT, pooled across runs. Made for all six matching strategies used
+everywhere else in the benchmark (strict_bsj/relaxed_bsj/exon_based
+structural, full/strict/relaxed isoform), since a caller can score
+differently on each. Only the top N intersections by size are plotted.
+
+strict_bsj/relaxed_bsj/exon_based use this module's own dedicated overlap
+thresholds (config.overlap_bsj_tolerance/overlap_min_overlap), same as
+before this module covered six strategies instead of two. full/strict/
+relaxed use their own fixed tier definitions (config.isoform_match_levels),
+the same ones performance.py/expression.py/reproducibility.py use, so the
+isoform-tier views are directly comparable across modules.
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -10,40 +18,55 @@ import numpy as np
 from matplotlib import patches
 
 from .bed_io import read_bed
-from .matching import StructuralMatcher
+from .matching import ISOFORM_MATCH_TAGS, StructuralMatcher, isoform_match_level_params
 
 TOP_N_COMBOS = 25
-STRATEGIES = ["exon_based", "relaxed_bsj"]
+STRATEGIES = ["strict_bsj", "relaxed_bsj", "exon_based"] + list(ISOFORM_MATCH_TAGS)
+_BSJ_ONLY_KEY_STRATEGIES = ("strict_bsj", "relaxed_bsj")  # BSJ-only pooling, no structure needed
 
 
 def _gt_key(df, strategy):
-    """Pooling identity for a GT row. relaxed_bsj is a BSJ-only measure, so a
-    BSJ-only key is correct there: isoforms sharing one BSJ really are "the
-    same relaxed-BSJ entity". exon_based counts each distinct structure on
-    its own, so it needs a key that includes block structure too. A
+    """Pooling identity for a GT row. strict_bsj/relaxed_bsj are BSJ-only
+    measures, so a BSJ-only key is correct there: isoforms sharing one BSJ
+    really are "the same" entity at that resolution. exon_based and the
+    isoform tiers (full/strict/relaxed) each count a distinct structure on
+    its own, so they need a key that includes block structure too. A
     BSJ-only key there would wrongly make two callers that matched two
     different isoforms of the same BSJ look like they matched the same
     thing."""
     base = df["chrom"] + ":" + df["start"].astype(str) + "-" + df["end"].astype(str) + ":" + df["strand"]
-    if strategy == "exon_based":
-        return base + ":" + df["blockSizes"] + ":" + df["blockStarts"]
-    return base
+    if strategy in _BSJ_ONLY_KEY_STRATEGIES:
+        return base
+    return base + ":" + df["blockSizes"] + ":" + df["blockStarts"]
 
 
-def matched_gt_keys(matcher, tool_df, gt_df, gt_keys_by_row_id, work, strategy, min_overlap=None, tolerance=None):
-    if strategy == "exon_based":
-        _, _, _, matched_ids = matcher.exon_based_counts(tool_df, gt_df, work, min_overlap, return_ids=True)
+def matched_gt_keys(matcher, tool_df, gt_df, gt_keys_by_row_id, work, strategy, config):
+    if strategy == "strict_bsj":
+        _, _, _, matched_ids = matcher.strict_bsj_counts(tool_df, gt_df, work, return_ids=True)
     elif strategy == "relaxed_bsj":
-        _, _, _, matched_ids = matcher.relaxed_bsj_counts(tool_df, gt_df, work, tolerance, return_ids=True)
+        _, _, _, matched_ids = matcher.relaxed_bsj_counts(tool_df, gt_df, work, config.overlap_bsj_tolerance,
+                                                            return_ids=True)
+    elif strategy == "exon_based":
+        _, _, _, matched_ids = matcher.exon_based_counts(tool_df, gt_df, work, config.overlap_min_overlap,
+                                                           return_ids=True)
+    elif strategy in ISOFORM_MATCH_TAGS:
+        tol, min_ov = isoform_match_level_params(config, strategy)
+        _, _, _, matched_ids = matcher.isoform_level_counts(tool_df, gt_df, work, tol, min_ov, return_ids=True)
     else:
         raise ValueError(f"unknown strategy: {strategy}")
     return {gt_keys_by_row_id[rid] for rid in matched_ids if rid in gt_keys_by_row_id}
 
 
 def _strategy_label(strategy, config):
+    if strategy == "strict_bsj":
+        return "exact coordinate match"
     if strategy == "exon_based":
-        return f"exon-based match, ≥{config.overlap_min_overlap:.0%} overlap"
-    return f"relaxed BSJ match, ±{config.overlap_bsj_tolerance}bp"
+        return f"exon-based match, >={config.overlap_min_overlap:.0%} overlap"
+    if strategy in ISOFORM_MATCH_TAGS:
+        tol, min_ov = isoform_match_level_params(config, strategy)
+        bsj_desc = "exact BSJ" if tol == 0 else f"+/-{tol}bp BSJ"
+        return f"{strategy} isoform match, {bsj_desc}, >={min_ov:.0%} overlap"
+    return f"relaxed BSJ match, +/-{config.overlap_bsj_tolerance}bp"
 
 
 def _compute_detected(paths, config, strategy):
@@ -65,13 +88,11 @@ def _compute_detected(paths, config, strategy):
             if not path.exists():
                 continue
             tool_df = read_bed(path)
-            detected[tool] |= matched_gt_keys(matcher, tool_df, gt_df, gt_keys_by_row_id, work, strategy,
-                                               min_overlap=config.overlap_min_overlap,
-                                               tolerance=config.overlap_bsj_tolerance)
+            detected[tool] |= matched_gt_keys(matcher, tool_df, gt_df, gt_keys_by_row_id, work, strategy, config)
     return detected, gt_total_keys
 
 
-def run_overlap_analysis(paths, config, species: str, strategy: str = "exon_based", out_path=None):
+def run_overlap_analysis(paths, config, species: str, strategy: str = "relaxed_bsj", out_path=None):
     if strategy not in STRATEGIES:
         raise ValueError(f"strategy must be one of {STRATEGIES}, got {strategy!r}")
 
@@ -168,18 +189,19 @@ def run_overlap_analysis(paths, config, species: str, strategy: str = "exon_base
                  fontsize=15, fontweight="bold", y=0.99)
     fig.text(0.5, 0.005, f"Top {n_combos} of {n_combos_total} observed intersection patterns shown. "
              f"Percentages relative to pooled GT (n={gt_total}). "
-             "GT filtered to circRNAs with ≥1 BSJ-crossing read in each run's data.",
+             "GT filtered to circRNAs with >=1 BSJ-crossing read in each run's data.",
              ha="center", fontsize=9, color="#888888")
-    tag = "exon" if strategy == "exon_based" else "bsj"
-    out_path = out_path or paths.plot_dir / f"upset_plot_{species}_{tag}.png"
+    suffix = "" if strategy == "relaxed_bsj" else f"_{strategy}"
+    out_path = out_path or paths.plot_dir / f"upset_plot_{species}{suffix}.png"
     fig.savefig(out_path, dpi=170, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"-> {out_path}")
     return out_path
 
 
-def run_overlap_analysis_both(paths, config, species: str) -> dict:
-    """Produces both the exon-based and relaxed-BSJ UpSet plots, since they
-    tell genuinely different stories about a caller's strengths (see module
-    docstring)."""
-    return {strategy: run_overlap_analysis(paths, config, species, strategy=strategy) for strategy in STRATEGIES}
+def run_overlap_analysis_all(paths, config, species: str, strategies=None) -> dict:
+    """Produces the UpSet plot for every requested strategy (default: all
+    six), since each tells a genuinely different story about a caller's
+    strengths (see module docstring)."""
+    strategies = strategies or STRATEGIES
+    return {strategy: run_overlap_analysis(paths, config, species, strategy=strategy) for strategy in strategies}

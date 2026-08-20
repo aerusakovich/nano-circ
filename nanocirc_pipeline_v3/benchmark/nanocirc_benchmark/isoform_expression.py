@@ -42,9 +42,9 @@ def _reciprocal_pred_map(families: pd.DataFrame, caller_df: pd.DataFrame, matche
     """family row_id -> caller n_reads, matched with reciprocal exon overlap
     (matching.py's exon_based_pairs). Several caller isoforms can match one
     family isoform under this looser strategy; collapsed with max, not sum,
-    same convention collapse_near_duplicates uses in expression.py, since
-    they are near-duplicate reports of one true isoform, not independent
-    counts."""
+    same principle expression.py's best_match_by_strategy_isoform_resolved
+    uses: this scores one specific isoform, so a near-duplicate report of
+    it should not inflate its count."""
     if len(caller_df) == 0:
         return {}
     pairs = matcher.exon_based_pairs(caller_df, families, work, min_overlap=min_overlap)

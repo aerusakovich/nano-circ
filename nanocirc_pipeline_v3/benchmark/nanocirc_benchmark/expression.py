@@ -15,9 +15,9 @@ from .bed_io import read_bed
 from .callers import (load_nanocirc_isoform_bed_counts, load_nanocirc_locus_counts, load_tier_membership,
                        load_tool_isoform_bed_counts, load_tool_locus_counts)
 from .gt import count_reads, load_gt_loci
-from .matching import (ISOFORM_MATCH_TAGS, STRATEGY_TITLES, StructuralMatcher, collapse_near_duplicates,
+from .matching import (ISOFORM_MATCH_TAGS, STRATEGY_TITLES, StructuralMatcher, best_match_by_strategy_isoform_resolved,
                         isoform_match_level_params, match_pairs_by_strategy,
-                        match_pairs_by_strategy_isoform_resolved, match_pred_to_pred, strategy_footnote)
+                        match_pairs_by_strategy_isoform_resolved_scored, match_pred_to_pred, strategy_footnote)
 from .viz import sig_stars
 
 _BED12_STRATEGIES = ("exon_based", "isoform_level") + ISOFORM_MATCH_TAGS
@@ -49,9 +49,13 @@ def build_long_df(paths, config, species: str, strategy: str = "relaxed_bsj") ->
                 call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
                 call_bed_df = None
             if is_isoform_resolved:
-                matched = match_pairs_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work)
+                # Best structural match's own count, not a sum across near-duplicate calls:
+                # isoform-resolved matching exists to keep isoforms distinguishable, and summing
+                # several of a tool's own near-duplicate isoform calls into one true isoform's
+                # slot would collapse that back into locus-level pooling.
+                matched = best_match_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work)
                 for g_row_id, (bid, gt_expr) in gt_iso.items():
-                    pred = sum(n for n, _ in matched.get(g_row_id, []))
+                    pred, _ = matched.get(g_row_id, (0, None))
                     rows.append({"bsj_id": bid, "run": run, "quant": tool, "gt_expr": gt_expr, "pred_expr": pred})
             else:
                 matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
@@ -63,13 +67,17 @@ def build_long_df(paths, config, species: str, strategy: str = "relaxed_bsj") ->
         nc_bed_df = load_nanocirc_isoform_bed_counts(paths, run, None, work) if strategy in _BED12_STRATEGIES else None
         tier_members = load_tier_membership(paths, config.tiers)
         if is_isoform_resolved:
-            nc_matched = match_pairs_by_strategy_isoform_resolved(strategy, nc_bed_df, gt_bed_df, config, matcher,
-                                                                    work, extra_col="base_bsj_id")
+            # Scored, not pre-collapsed: each tier only sees its own members, so the
+            # best-scoring candidate has to be picked per tier, after filtering.
+            nc_matched = match_pairs_by_strategy_isoform_resolved_scored(strategy, nc_bed_df, gt_bed_df, config,
+                                                                          matcher, work, extra_col="base_bsj_id")
             for tier in config.tiers:
                 members = tier_members[tier]
                 for g_row_id, (bid, gt_expr) in gt_iso.items():
-                    candidates = [(n, src_bid) for n, src_bid in nc_matched.get(g_row_id, []) if src_bid in members]
-                    pred = collapse_near_duplicates(candidates)
+                    candidates = [(n, score) for n, src_bid, score in nc_matched.get(g_row_id, []) if src_bid in members]
+                    # Best structural match's own count, same rule as tools: not summed
+                    # across near-duplicate calls, see the tool-side comment above.
+                    pred = max(candidates, key=lambda c: c[1])[0] if candidates else 0
                     rows.append({"bsj_id": bid, "run": run, "quant": tier, "gt_expr": gt_expr, "pred_expr": pred})
         else:
             nc_matched = match_pairs_by_strategy(strategy, nc_df, gt_df, config, matcher, nc_bed_df, gt_bed_df,
@@ -78,7 +86,7 @@ def build_long_df(paths, config, species: str, strategy: str = "relaxed_bsj") ->
                 members = tier_members[tier]
                 for bid, gt_expr in gt_map.items():
                     candidates = [(n, src_bid) for n, src_bid in nc_matched.get(bid, []) if src_bid in members]
-                    pred = collapse_near_duplicates(candidates)
+                    pred = sum(n for n, _ in candidates)  # same rule as tools: sum near-duplicate matches, don't collapse to max
                     rows.append({"bsj_id": bid, "run": run, "quant": tier, "gt_expr": gt_expr, "pred_expr": pred})
     return pd.DataFrame(rows)
 

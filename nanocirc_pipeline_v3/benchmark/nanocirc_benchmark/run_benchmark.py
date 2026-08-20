@@ -6,7 +6,7 @@ from .expression import run_expression_analysis
 from .isoform_detection import run_isoform_detection_analysis
 from .isoform_expression import run_isoform_expression_analysis
 from .length import plot_contingency_heatmap, plot_gt_coverage_stacked, plot_length_barplot
-from .overlap import run_overlap_analysis_both
+from .overlap import run_overlap_analysis_all
 from .paths import Paths
 from .performance import (plot_pr_scatter, plot_pr_scatter_isoform, run_isoform_matching,
                            run_structural_matching)
@@ -50,7 +50,7 @@ def run_all(dataset_root, species: str, config: BenchmarkConfig = None, runs: li
     plot_length_barplot(paths, config, species)
     plot_contingency_heatmap(paths, config, species, metrics_csv_tag=relaxed_tag)
     plot_gt_coverage_stacked(paths, config, species, metrics_csv_tag=relaxed_tag)
-    run_overlap_analysis_both(paths, config, species)
+    run_overlap_analysis_all(paths, config, species)
     run_reproducibility_analysis(paths, config, species)
     isoform_detection_results = run_isoform_detection_analysis(paths, config, species)
     isoform_expression_results = run_isoform_expression_analysis(paths, config, species)
