@@ -66,9 +66,12 @@ def _shifts(center: int, max_adjustment: int):
 
 
 def _search_end_side(genome, chrom: str, end: int, strand: str, target_motif: str, max_adjustment: int) -> int:
+    chrom_len = genome.chrom_lengths.get(chrom, end + max_adjustment)
     window_start = end - max_adjustment
     window = genome.fetch(chrom, window_start, end + max_adjustment + 2, "+")
     for e in _shifts(end, max_adjustment):
+        if e < 0 or e > chrom_len:
+            continue  # genome.fetch clamps the window, so an out-of-bounds e would misalign
         i = e - window_start
         if 0 <= i and i + 2 <= len(window):
             motif = window[i:i + 2]
@@ -80,9 +83,12 @@ def _search_end_side(genome, chrom: str, end: int, strand: str, target_motif: st
 
 
 def _search_start_side(genome, chrom: str, start: int, strand: str, target_motif: str, max_adjustment: int) -> int:
+    chrom_len = genome.chrom_lengths.get(chrom, start + max_adjustment)
     window_start = start - max_adjustment - 2
     window = genome.fetch(chrom, window_start, start + max_adjustment, "+")
     for s in _shifts(start, max_adjustment):
+        if s < 0 or s > chrom_len:
+            continue  # genome.fetch clamps the window, so an out-of-bounds s would misalign
         i = (s - 2) - window_start
         if 0 <= i and i + 2 <= len(window):
             motif = window[i:i + 2]
