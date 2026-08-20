@@ -1,14 +1,6 @@
-"""Reproducibility scatter-matrix in the style of the isoCirc paper's
-Supplementary Fig. 5 (pairwise BSJ read count, density-colored), but with
-callers (ground truth, each tool, each NanoCirc tier) on the matrix axes
-instead of replicate runs. Answers "does this caller's read count agree
-with that caller's read count for the same locus", pooled across runs.
-
-Every axis is matched back to GT with one of the 3 structural strategies
-(matching.match_pairs_by_strategy), the same strategies performance.py
-scores TP/FP/FN with, so all callers land on one common per-locus axis (a
-caller's own called BSJ boundary is rarely byte-identical to another
-caller's).
+"""Pairwise read-count scatter matrix (density-colored), callers (ground
+truth, each tool, each NanoCirc tier) on both axes, pooled across runs.
+Every axis is matched back to GT with matching.match_pairs_by_strategy.
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -18,55 +10,77 @@ import pandas as pd
 from matplotlib.colors import Normalize
 from scipy.stats import gaussian_kde
 
-from .bed_io import empty_bed_df, read_bed
-from .callers import (load_nanocirc_locus_counts, load_tier_membership,
-                       load_tool_locus_counts, nanocirc_catalog_bed_df)
+from .bed_io import read_bed
+from .callers import (load_nanocirc_isoform_bed_counts, load_nanocirc_locus_counts, load_tier_membership,
+                       load_tool_isoform_bed_counts, load_tool_locus_counts)
 from .gt import load_gt_loci
-from .matching import (STRATEGY_TITLES, StructuralMatcher, collapse_near_duplicates,
-                        match_pairs_by_strategy, strategy_footnote)
+from .matching import (ISOFORM_MATCH_TAGS, STRATEGY_TITLES, StructuralMatcher, collapse_near_duplicates,
+                        match_pairs_by_strategy, match_pairs_by_strategy_isoform_resolved, strategy_footnote)
+
+_BED12_STRATEGIES = ("exon_based", "isoform_level") + ISOFORM_MATCH_TAGS
 
 
 def build_caller_wide_df(paths, config, species: str, strategy: str = "relaxed_bsj") -> pd.DataFrame:
-    """One row per (bsj_id, run), one column per caller (+ "ground_truth"),
-    read count matched to that GT locus for this strategy (0 if
-    unmatched)."""
+    is_isoform_resolved = strategy in ISOFORM_MATCH_TAGS
+    needs_gt_bed = strategy in _BED12_STRATEGIES
     matcher = StructuralMatcher(config.bedtools_bin, genome_sizes_file=paths.genome_sizes_file) \
-        if strategy == "exon_based" else None
+        if strategy in _BED12_STRATEGIES else None
     rows = []
     for run in paths.runs:
         gt_df = load_gt_loci(paths, run)
         gt_map = dict(zip(gt_df["bsj_id"], gt_df["n_reads_confirmed"]))
-        gt_bed_df = read_bed(paths.gt_prefiltered_bed12(run)) if strategy == "exon_based" else None
+        gt_bed_df = read_bed(paths.gt_prefiltered_bed12(run)) if needs_gt_bed else None
         work = None
-        if strategy == "exon_based":
+        if strategy in _BED12_STRATEGIES:
             work = paths.bedtools_work_dir / "reproducibility" / strategy / run
             work.mkdir(parents=True, exist_ok=True)
 
-        per_bsj = {bid: {"bsj_id": bid, "run": run, "ground_truth": expr} for bid, expr in gt_map.items()}
+        if is_isoform_resolved:
+            # bsj_id, not r.name (r.name is the circRNA's own id, e.g. "ecirna0000000",
+            # not a coordinate string).
+            per_key = {r.row_id: {"bsj_id": f"{r.chrom}:{r.start}-{r.end}:{r.strand}", "run": run,
+                                   "ground_truth": int(r.score)}
+                       for r in gt_bed_df.itertuples()}
+        else:
+            per_key = {bid: {"bsj_id": bid, "run": run, "ground_truth": expr} for bid, expr in gt_map.items()}
 
         for tool in config.tools:
-            call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
-            if strategy == "exon_based":
-                call_bed_path = paths.caller_bed_path(run, tool, config.tiers)
-                call_bed_df = read_bed(call_bed_path) if call_bed_path.exists() else empty_bed_df()
+            if strategy in _BED12_STRATEGIES:
+                call_df = None
+                call_bed_df = load_tool_isoform_bed_counts(paths, run, tool)
             else:
+                call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
                 call_bed_df = None
-            matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
-            for bid in gt_map:
-                per_bsj[bid][tool] = sum(n for n, _ in matched.get(bid, []))
+            if is_isoform_resolved:
+                matched = match_pairs_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work)
+                for key in per_key:
+                    per_key[key][tool] = sum(n for n, _ in matched.get(key, []))
+            else:
+                matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
+                for key in per_key:
+                    per_key[key][tool] = sum(n for n, _ in matched.get(key, []))
 
         nc_df = load_nanocirc_locus_counts(paths, run)
-        nc_bed_df = nanocirc_catalog_bed_df(paths, run, work) if strategy == "exon_based" else None
-        nc_matched = match_pairs_by_strategy(strategy, nc_df, gt_df, config, matcher, nc_bed_df, gt_bed_df,
-                                              work, extra_col="base_bsj_id")
+        nc_bed_df = load_nanocirc_isoform_bed_counts(paths, run, None, work) if strategy in _BED12_STRATEGIES else None
         tier_members = load_tier_membership(paths, config.tiers)
-        for tier in config.tiers:
-            members = tier_members[tier]
-            for bid in gt_map:
-                candidates = [(n, src_bid) for n, src_bid in nc_matched.get(bid, []) if src_bid in members]
-                per_bsj[bid][tier] = collapse_near_duplicates(candidates)
+        if is_isoform_resolved:
+            nc_matched = match_pairs_by_strategy_isoform_resolved(strategy, nc_bed_df, gt_bed_df, config, matcher,
+                                                                    work, extra_col="base_bsj_id")
+            for tier in config.tiers:
+                members = tier_members[tier]
+                for key in per_key:
+                    candidates = [(n, src_bid) for n, src_bid in nc_matched.get(key, []) if src_bid in members]
+                    per_key[key][tier] = collapse_near_duplicates(candidates)
+        else:
+            nc_matched = match_pairs_by_strategy(strategy, nc_df, gt_df, config, matcher, nc_bed_df, gt_bed_df,
+                                                  work, extra_col="base_bsj_id")
+            for tier in config.tiers:
+                members = tier_members[tier]
+                for key in per_key:
+                    candidates = [(n, src_bid) for n, src_bid in nc_matched.get(key, []) if src_bid in members]
+                    per_key[key][tier] = collapse_near_duplicates(candidates)
 
-        rows.extend(per_bsj.values())
+        rows.extend(per_key.values())
     return pd.DataFrame(rows)
 
 
@@ -75,10 +89,10 @@ def plot_reproducibility_pairs(paths, config, species: str, out_path=None, strat
     labels = {"ground_truth": "Ground Truth", **config.tool_labels, **config.tier_labels}
     labels = {c: labels[c].replace("\n", " ") for c in callers}
 
+    unit = "isoforms" if strategy in ISOFORM_MATCH_TAGS else "loci"
     df = build_caller_wide_df(paths, config, species, strategy)
-    # a locus is included if its count is >=1 for at least one caller
     df = df[(df[callers] >= 1).any(axis=1)]
-    print(f"[{species}] loci included (>=1 read for at least one caller): {len(df)}")
+    print(f"[{species}] {unit} included (>=1 read for at least one caller): {len(df)}")
 
     n = len(callers)
     fig, axes = plt.subplots(n, n, figsize=(2.6 * n + 2, 2.4 * n + 1.5))
@@ -156,7 +170,7 @@ def plot_reproducibility_pairs(paths, config, species: str, out_path=None, strat
     fig.text(0.5, 0.005,
              f"Each panel: read count, caller on x-axis (top label) vs caller on y-axis (right label). "
              f"Matched to GT ({strategy_footnote(strategy, config)}).\n"
-             f"Loci with >=1 read for at least one caller included (n={len(df):,}), pooled across {len(paths.runs)} runs. "
+             f"{unit.capitalize()} with >=1 read for at least one caller included (n={len(df):,}), pooled across {len(paths.runs)} runs. "
              "Axes: log1p-scaled read count.",
              ha="center", va="bottom", fontsize=8, color="#666666")
 
@@ -170,10 +184,9 @@ def plot_reproducibility_pairs(paths, config, species: str, out_path=None, strat
 
 
 def run_reproducibility_analysis(paths, config, species: str, strategies=None) -> list:
-    """Runs plot_reproducibility_pairs for each of the 3 structural
-    strategies (default: all 3). relaxed_bsj keeps the plain, unsuffixed
-    file name (the long-standing default this benchmark has always used).
-    strict_bsj and exon_based get a strategy suffix. Returns the list of
-    output paths written."""
-    strategies = strategies or ["relaxed_bsj", "strict_bsj", "exon_based"]
+    """Runs plot_reproducibility_pairs for relaxed_bsj/strict_bsj/
+    exon_based plus the 3 named isoform match tiers (default: all 6).
+    relaxed_bsj keeps the plain, unsuffixed file name; every other strategy
+    gets a suffix. Returns the list of output paths written."""
+    strategies = strategies or ["relaxed_bsj", "strict_bsj", "exon_based", "full", "strict", "relaxed"]
     return [plot_reproducibility_pairs(paths, config, species, strategy=s) for s in strategies]

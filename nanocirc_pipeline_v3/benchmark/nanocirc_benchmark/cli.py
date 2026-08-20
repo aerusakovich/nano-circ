@@ -23,7 +23,7 @@ def _add_all_parser(subparsers):
 
 
 def _add_performance_parser(subparsers):
-    p = subparsers.add_parser("performance", help="Structural precision/recall/F1 + PR scatter")
+    p = subparsers.add_parser("performance", help="Structural + isoform-level precision/recall/F1, two PR scatters")
     _add_common_args(p)
     return p
 
@@ -71,6 +71,12 @@ def _add_isoform_detection_parser(subparsers):
     return p
 
 
+def _add_isoform_expression_parser(subparsers):
+    p = subparsers.add_parser("isoform-expression", help="Read-count correlation at isoform granularity within shared-BSJ multi-isoform families")
+    _add_common_args(p)
+    return p
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nanocirc-benchmark", description="circRNA quantifier/caller benchmark suite")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
@@ -84,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_length_parser(subparsers)
     _add_reproducibility_parser(subparsers)
     _add_isoform_detection_parser(subparsers)
+    _add_isoform_expression_parser(subparsers)
     return parser
 
 
@@ -106,7 +113,8 @@ def _cmd_all(args) -> int:
 
 
 def _cmd_performance(args) -> int:
-    from .performance import plot_pr_scatter, run_structural_matching
+    from .performance import (plot_pr_scatter, plot_pr_scatter_isoform, run_isoform_matching,
+                               run_structural_matching)
     from .run_benchmark import _relaxed_tag
 
     config = _load_config(args)
@@ -117,6 +125,11 @@ def _cmd_performance(args) -> int:
     out_path = paths.plot_dir / f"pr_scatter_{args.species}.png"
     plot_pr_scatter(paths, config, args.species, metrics_by_tag[relaxed_tag], out_path)
     print(f"-> {out_path}")
+
+    isoform_metrics = run_isoform_matching(paths, config, args.species)
+    isoform_out_path = paths.plot_dir / f"pr_scatter_isoform_{args.species}.png"
+    plot_pr_scatter_isoform(paths, config, args.species, isoform_metrics, isoform_out_path)
+    print(f"-> {isoform_out_path}")
     return 0
 
 
@@ -193,6 +206,16 @@ def _cmd_isoform_detection(args) -> int:
     return 0
 
 
+def _cmd_isoform_expression(args) -> int:
+    from .isoform_expression import run_isoform_expression_analysis
+
+    config = _load_config(args)
+    config.validate()
+    paths = _build_paths(args, config)
+    run_isoform_expression_analysis(paths, config, args.species)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -205,6 +228,8 @@ def main(argv=None) -> int:
         "type-classification": _cmd_type_classification,
         "overlap": _cmd_overlap, "length": _cmd_length,
         "reproducibility": _cmd_reproducibility,
+        "isoform-detection": _cmd_isoform_detection,
+        "isoform-expression": _cmd_isoform_expression,
     }
     return handlers[args.command](args)
 

@@ -1,24 +1,9 @@
 #!/usr/bin/env python3
-"""
-What does discovery (the union of all 4 tools, max recall) actually miss?
-For every ground-truth circle NOT recovered by ANY tool (exon-based match,
-same StructuralMatcher performance.py uses), characterizes it against the
-simulator's own circRNA_metadata.tsv and compares to recovered (TP) GT
-circles on the same axes:
-  - mature (spliced) length
-  - exon/block count
-  - copy_number (rolling-circle/RCRT repeat count, fewer copies means
-    weaker concatemer evidence for the RCA-based tools)
-  - expression level (TPM, n_reads_target)
-  - circRNA biotype (eciRNA/EIciRNA/ciRNA/antisense/intergenic)
-  - splice-site canonicality (GT/AG) at the BSJ boundary, via direct FASTA
-    lookup (no samtools needed, plain .fai random access)
-  - genomic repeat overlap (UCSC RepeatMasker)
-  - gene overlap / how many transcripts that gene has (multi-isoform proxy)
-
-GT bed12's own "name" field is the candidate's circRNA_id directly (see
-nanocirc_sim's bed12.py), so the join to circRNA_metadata.tsv needs no
-coordinate matching at all.
+"""For every ground-truth circRNA not recovered by any tool (exon-based
+match), characterizes it against circRNA_metadata.tsv and compares to
+recovered (TP) GT circRNAs on: mature length, exon count, copy_number,
+expression (TPM), biotype, BSJ splice-site canonicality, repeat overlap,
+gene overlap/transcript count.
 
 Usage:
     python fn_characterize.py \\

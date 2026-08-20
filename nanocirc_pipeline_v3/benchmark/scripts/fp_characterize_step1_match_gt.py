@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
-"""
-Step 1 of the false-positive characterization behind docs/benchmark.md's
-"What are these false positives, really?" tables.
-
-For each run, matches one caller's own bed12 against ground truth
-(exon-based, same StructuralMatcher performance.py uses). `--caller` is
-either a nanocirc tier (discovery/balanced_recall/balanced_precision/
-high_confidence), in which case the TP/FP label is also joined onto that
-run's own clean_with_counts.tsv (read counts, type, supporting_tools), or a
-raw tool (cirilong/circfl/isocirc/circnick) run standalone, in which case
-every FP is definitionally single-tool support (no merge TSV exists for a
-raw tool, so supporting_tools/type/reads are filled in directly instead of
-joined). Output feeds fp_characterize_step2_trace_reads.py.
+"""Step 1 of FP characterization: matches one caller's bed12 against ground
+truth (exon-based) per run. --caller can be a nanocirc tier (TP/FP joined
+onto that run's clean_with_counts.tsv) or a raw tool run standalone (every
+FP is single-tool support by definition). Output feeds
+fp_characterize_step2_trace_reads.py.
 
 Usage:
     python fp_characterize_step1_match_gt.py \\
@@ -76,14 +68,9 @@ def main():
         caller_df = caller_df.assign(is_tp=caller_df["row_id"].isin(matched_caller_ids))
 
         if is_tier:
-            # Join bed12 rows to tsv rows on (chrom, start, end, strand), not
-            # bsj_id string equality: some tiers (balanced_precision/
-            # high_confidence) keep several isoform rows per BSJ in the tsv
-            # (bsj_id suffixed "|iso1" etc) but only one collapsed
-            # representative row in the bed12 (bare "chrom:start-end:strand"
-            # name), so a bsj_id/name string join loses those. Coordinate
-            # join first, unioning supporting_tools across any isoform rows
-            # that collapse onto the same bed12 locus.
+            # Join on (chrom, start, end, strand), not bsj_id string equality:
+            # some tiers keep several isoform rows per BSJ in the tsv
+            # ("|iso1" suffix) but one collapsed row in the bed12.
             tsv_path = args.dataset_root / "results" / args.species / "circrna" / run / "merged" / "clean" / f"{run}_{args.caller}_clean_with_counts.tsv"
             tsv = pd.read_csv(tsv_path, sep="\t").rename(columns={"#chrom": "chrom"})
 

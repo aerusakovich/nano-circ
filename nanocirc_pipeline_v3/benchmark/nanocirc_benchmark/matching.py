@@ -1,16 +1,19 @@
-"""Structural circRNA matching (3 strategies), plus coordinate-tolerance
+"""Structural circRNA matching (4 strategies), plus coordinate-tolerance
 matching for read-count comparisons. Uses bedtools intersect approach.
 
 Strategies:
-  strict_bsj   exact whole-span match (`bedtools intersect -s -f 1.0 -r`).
-  relaxed_bsj  both boundaries within `tolerance` bp of each other.
-  exon_based   reciprocal exon overlap >= min_overlap (`-wo -split`).
+  strict_bsj     exact whole-span match (`bedtools intersect -s -f 1.0 -r`).
+  relaxed_bsj    both boundaries within `tolerance` bp of each other.
+  exon_based     reciprocal exon overlap >= min_overlap (`-wo -split`).
+  isoform_level  relaxed_bsj AND exon_based (>=99% overlap) both for
+                 the same GT row - the "same molecule" test.
+  full/strict/relaxed  config.isoform_match_levels' 3 named tiers: full =
+                 exact BSJ + 100% overlap, strict = +/-Nbp BSJ + 99%
+                 overlap, relaxed = +/-Nbp BSJ + 90% overlap.
 
-GT rows with strand '.' are intergenic circRNAs (strand is random at
-simulation time, so we can't judge based upon it). These match a caller's call on
-either strand. Every function below splits GT into a stranded subset
-(matched with -s) and an unstranded subset (matched with no strand flag),
-then combines both results.
+GT rows with strand '.' are intergenic circRNAs (strand unassigned at
+simulation time) and match a caller's call on either strand. Every function
+below splits GT into a stranded and an unstranded subset, then combines both.
 
 Usage as a library:
     from nanocirc_benchmark.matching import StructuralMatcher
@@ -26,7 +29,19 @@ from .bed_io import BED12_COLS, write_bed_with_id, dedup_by_bsj, Bedtools
 
 _STRANDED = ("+", "-")
 
-STRATEGY_TITLES = {"strict_bsj": "Strict BSJ", "relaxed_bsj": "Relaxed BSJ", "exon_based": "Exon"}
+STRATEGY_TITLES = {"strict_bsj": "Strict BSJ", "relaxed_bsj": "Relaxed BSJ", "exon_based": "Exon",
+                    "isoform_level": "Isoform", "full": "Full", "strict": "Strict", "relaxed": "Relaxed"}
+
+ISOFORM_MATCH_TAGS = ("full", "strict", "relaxed")
+
+
+def isoform_match_level_params(config, tag: str):
+    """(bsj_tolerance, min_overlap) for one of config.isoform_match_levels'
+    named tiers (full/strict/relaxed)."""
+    for level in config.isoform_match_levels:
+        if level["tag"] == tag:
+            return level["bsj_tolerance"], level["min_overlap"]
+    raise ValueError(f"unknown isoform match tier: {tag}")
 
 
 def strategy_footnote(strategy: str, config) -> str:
@@ -36,6 +51,12 @@ def strategy_footnote(strategy: str, config) -> str:
         return "exact coordinate match"
     if strategy == "exon_based":
         return f">={config.tp_min_overlap:.0%} exon overlap matched"
+    if strategy == "isoform_level":
+        return f"+/-{config.gt_match_tolerance}bp BSJ AND >={config.isoform_level_min_overlap:.0%} exon overlap matched"
+    if strategy in ISOFORM_MATCH_TAGS:
+        tol, min_ov = isoform_match_level_params(config, strategy)
+        bsj_desc = "exact BSJ" if tol == 0 else f"+/-{tol}bp BSJ"
+        return f"{bsj_desc} AND >={min_ov:.0%} exon overlap matched"
     return f"coordinate-tolerance matched, +/-{config.gt_match_tolerance}bp"
 
 
@@ -292,6 +313,126 @@ class StructuralMatcher:
 
         return [(int(c_id[1:]), int(g_id[1:])) for c_id, (g_id, _) in best_for_caller.items()]
 
+    def isoform_level_counts(self, caller_df, gt_df, work: Path, tolerance: int, min_overlap: float,
+                              return_ids=False):
+        """A caller row counts as matched only if BOTH its own BSJ
+        boundaries are within `tolerance` bp of a GT locus's own boundaries
+        AND its exon structure reciprocally overlaps that same GT isoform
+        by >= min_overlap. Same overlap computation as exon_based_counts, with an
+        added per-pair boundary check."""
+        caller_bed = work / "caller.bed"
+        write_bed_with_id(caller_df, caller_bed, "c")
+
+        lines = []
+        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+            if len(gt_subset) == 0:
+                continue
+            gt_bed = work / f"gt_{tag}.bed"
+            write_bed_with_id(gt_subset, gt_bed, "g")
+            flags = [strand_flag] if strand_flag else []
+            out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
+            lines += [l for l in out.strip().split("\n") if l]
+
+        if not lines:
+            if return_ids == "both":
+                return 0, len(caller_df), len(gt_df), set(), set()
+            if return_ids:
+                return 0, len(caller_df), len(gt_df), set()
+            return 0, len(caller_df), len(gt_df)
+
+        caller_len = dict(zip("c" + caller_df["row_id"].astype(str), caller_df["spliced_len"]))
+        gt_len = dict(zip("g" + gt_df["row_id"].astype(str), gt_df["spliced_len"]))
+        caller_bounds = {f"c{r.row_id}": (r.start, r.end) for r in caller_df.itertuples()}
+        gt_bounds = {f"g{r.row_id}": (r.start, r.end) for r in gt_df.itertuples()}
+
+        overlap_bp = {}
+        for line in lines:
+            cols = line.split("\t")
+            c_id, g_id, ov = cols[3], cols[15], int(cols[-1])
+            key = (c_id, g_id)
+            overlap_bp[key] = overlap_bp.get(key, 0) + ov
+
+        matched_caller, matched_gt = set(), set()
+        for (c_id, g_id), ov in overlap_bp.items():
+            cl = caller_len.get(c_id, 0)
+            gl = gt_len.get(g_id, 0)
+            if cl == 0 or gl == 0:
+                continue
+            exon_score = min(ov / cl, ov / gl)
+            if exon_score < min_overlap:
+                continue
+            c_start, c_end = caller_bounds[c_id]
+            g_start, g_end = gt_bounds[g_id]
+            if abs(c_start - g_start) > tolerance or abs(c_end - g_end) > tolerance:
+                continue
+            matched_caller.add(c_id)
+            matched_gt.add(g_id)
+
+        tp = len(matched_caller)
+        fp = len(caller_df) - tp
+        fn = len(gt_df) - len(matched_gt)
+        if return_ids == "both":
+            matched_gt_row_ids = {int(g[1:]) for g in matched_gt}
+            matched_caller_row_ids = {int(c[1:]) for c in matched_caller}
+            return tp, fp, fn, matched_gt_row_ids, matched_caller_row_ids
+        if return_ids:
+            matched_gt_row_ids = {int(g[1:]) for g in matched_gt}
+            return tp, fp, fn, matched_gt_row_ids
+        return tp, fp, fn
+
+    def isoform_level_pairs(self, caller_df, gt_df, work: Path, tolerance: int, min_overlap: float):
+        """Same computation as isoform_level_counts, but returns the actual
+        matched (caller_row_id, gt_row_id) pairs instead of two sets,
+        mirroring exon_based_pairs's relationship to exon_based_counts.
+        Used for isoform-level expression/reproducibility matching, not for
+        TP/FP/FN."""
+        caller_bed = work / "caller.bed"
+        write_bed_with_id(caller_df, caller_bed, "c")
+
+        lines = []
+        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+            if len(gt_subset) == 0:
+                continue
+            gt_bed = work / f"gt_{tag}.bed"
+            write_bed_with_id(gt_subset, gt_bed, "g")
+            flags = [strand_flag] if strand_flag else []
+            out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
+            lines += [l for l in out.strip().split("\n") if l]
+
+        if not lines:
+            return []
+
+        caller_len = dict(zip("c" + caller_df["row_id"].astype(str), caller_df["spliced_len"]))
+        gt_len = dict(zip("g" + gt_df["row_id"].astype(str), gt_df["spliced_len"]))
+        caller_bounds = {f"c{r.row_id}": (r.start, r.end) for r in caller_df.itertuples()}
+        gt_bounds = {f"g{r.row_id}": (r.start, r.end) for r in gt_df.itertuples()}
+
+        overlap_bp = {}
+        for line in lines:
+            cols = line.split("\t")
+            c_id, g_id, ov = cols[3], cols[15], int(cols[-1])
+            key = (c_id, g_id)
+            overlap_bp[key] = overlap_bp.get(key, 0) + ov
+
+        best_for_caller = {}
+        for (c_id, g_id), ov in overlap_bp.items():
+            cl = caller_len.get(c_id, 0)
+            gl = gt_len.get(g_id, 0)
+            if cl == 0 or gl == 0:
+                continue
+            exon_score = min(ov / cl, ov / gl)
+            if exon_score < min_overlap:
+                continue
+            c_start, c_end = caller_bounds[c_id]
+            g_start, g_end = gt_bounds[g_id]
+            if abs(c_start - g_start) > tolerance or abs(c_end - g_end) > tolerance:
+                continue
+            prev = best_for_caller.get(c_id)
+            if prev is None or exon_score > prev[1]:
+                best_for_caller[c_id] = (g_id, exon_score)
+
+        return [(int(c_id[1:]), int(g_id[1:])) for c_id, (g_id, _) in best_for_caller.items()]
+
     @staticmethod
     def compute_metrics(tp, fp, fn):
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
@@ -329,37 +470,63 @@ def match_to_gt(call_df, gt_df, tolerance, extra_col=None):
     return pairs_by_gt
 
 
+def _bed12_pairs(strategy, call_bed_df, gt_bed_df, config, matcher, work):
+    if strategy == "exon_based":
+        return matcher.exon_based_pairs(call_bed_df, gt_bed_df, work, min_overlap=config.tp_min_overlap)
+    if strategy == "isoform_level":
+        return matcher.isoform_level_pairs(call_bed_df, gt_bed_df, work, tolerance=config.gt_match_tolerance,
+                                            min_overlap=config.isoform_level_min_overlap)
+    tol, min_ov = isoform_match_level_params(config, strategy)
+    return matcher.isoform_level_pairs(call_bed_df, gt_bed_df, work, tolerance=tol, min_overlap=min_ov)
+
+
 def match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher=None, call_bed_df=None,
                              gt_bed_df=None, work=None, extra_col=None):
-    """Same return shape as match_to_gt (gt_bsj_id -> list of (n_reads,
-    extra_col value or None)), for whichever of the 3 structural strategies.
-
-    strict_bsj and relaxed_bsj both reuse match_to_gt, just with a
-    different tolerance (0 for strict_bsj, config.gt_match_tolerance for
-    relaxed_bsj). exon_based needs the BED12 versions of call_df/gt_df
-    (call_bed_df/gt_bed_df, with real block structure), a StructuralMatcher,
-    and a work dir, since it goes through the same real exon-overlap check
-    performance.py uses, not a boundary-distance check."""
-    if strategy != "exon_based":
+    """gt_bsj_id -> list of (n_reads, extra_col value or None). BED12
+    strategies read n_reads/extra_col from call_bed_df's matched row, and
+    pool matches of sibling isoforms sharing one BSJ into one key -- use
+    match_pairs_by_strategy_isoform_resolved instead when isoforms sharing a
+    BSJ must stay distinguishable (ISOFORM_MATCH_TAGS)."""
+    bed12_strategies = ("exon_based", "isoform_level") + ISOFORM_MATCH_TAGS
+    if strategy not in bed12_strategies:
         tolerance = 0 if strategy == "strict_bsj" else config.gt_match_tolerance
         return match_to_gt(call_df, gt_df, tolerance, extra_col=extra_col)
 
-    pairs = matcher.exon_based_pairs(call_bed_df, gt_bed_df, work, min_overlap=config.tp_min_overlap)
+    pairs = _bed12_pairs(strategy, call_bed_df, gt_bed_df, config, matcher, work)
     call_bed_by_id = {r.row_id: r for r in call_bed_df.itertuples()}
     gt_bed_by_id = {r.row_id: r for r in gt_bed_df.itertuples()}
-    count_by_coord = {(r.chrom, r.start, r.end, r.strand): r for r in call_df.itertuples()}
 
     pairs_by_gt = {}
     for c_row_id, g_row_id in pairs:
         c_bed = call_bed_by_id[c_row_id]
-        count_row = count_by_coord.get((c_bed.chrom, c_bed.start, c_bed.end, c_bed.strand))
-        if count_row is None:
-            continue
         g_bed = gt_bed_by_id[g_row_id]
         gt_bid = f"{g_bed.chrom}:{g_bed.start}-{g_bed.end}:{g_bed.strand}"
-        extra = getattr(count_row, extra_col) if extra_col else None
-        pairs_by_gt.setdefault(gt_bid, []).append((count_row.n_reads, extra))
+        extra = c_bed.name.split("|")[0] if extra_col == "base_bsj_id" else (
+            getattr(c_bed, extra_col) if extra_col else None)
+        pairs_by_gt.setdefault(gt_bid, []).append((c_bed.n_reads, extra))
     return pairs_by_gt
+
+
+def match_pairs_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work,
+                                              extra_col=None):
+    """Like match_pairs_by_strategy, but keyed by gt_bed_df's own row_id
+    (one real isoform) instead of pooled BSJ coordinate, so sibling
+    isoforms sharing a BSJ don't collapse onto the same key. Only valid for
+    ISOFORM_MATCH_TAGS (full/strict/relaxed), which is where distinguishing
+    isoforms sharing a BSJ actually matters.
+    Returns gt_row_id -> list of (n_reads, extra_col value or None)."""
+    if strategy not in ISOFORM_MATCH_TAGS:
+        raise ValueError(f"isoform-resolved matching only supports {ISOFORM_MATCH_TAGS}, got {strategy!r}")
+    pairs = _bed12_pairs(strategy, call_bed_df, gt_bed_df, config, matcher, work)
+    call_bed_by_id = {r.row_id: r for r in call_bed_df.itertuples()}
+
+    pairs_by_gt_row = {}
+    for c_row_id, g_row_id in pairs:
+        c_bed = call_bed_by_id[c_row_id]
+        extra = c_bed.name.split("|")[0] if extra_col == "base_bsj_id" else (
+            getattr(c_bed, extra_col) if extra_col else None)
+        pairs_by_gt_row.setdefault(g_row_id, []).append((c_bed.n_reads, extra))
+    return pairs_by_gt_row
 
 
 def match_pred_to_pred(call_df, ref_df, tolerance):

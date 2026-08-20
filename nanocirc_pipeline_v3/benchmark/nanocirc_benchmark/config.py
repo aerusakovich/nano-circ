@@ -23,6 +23,14 @@ def _default_isoform_overlap_param_sets():
     ]
 
 
+def _default_isoform_match_levels():
+    return [
+        {"tag": "full", "bsj_tolerance": 0, "min_overlap": 1.0},
+        {"tag": "strict", "bsj_tolerance": 10, "min_overlap": 0.99},
+        {"tag": "relaxed", "bsj_tolerance": 10, "min_overlap": 0.90},
+    ]
+
+
 def _default_tools():
     return ["cirilong", "isocirc", "circnick", "circfl"]
 
@@ -74,33 +82,28 @@ class BenchmarkConfig:
     sensitivity_bsj_tolerance: int = 10
     sensitivity_min_overlap: float = 0.75
 
-    # Exon-based overlap defining "TP" (a call structurally matches a GT
-    # locus) for the length and type-classification modules. Both are about
-    # a call's own structure, so exon-based match fits better than a
-    # boundary-only BSJ tolerance.
+    # Exon-based "TP" overlap for the length and type-classification modules.
     tp_min_overlap: float = 0.75
 
-    # relaxed_bsj tolerance (bp) for the type-classification module's BSJ-basis
-    # variant, matching the relaxed_10_75 structural_param_sets default.
+    # relaxed_bsj tolerance (bp) for the type-classification module's BSJ-basis variant.
     tp_bsj_tolerance: int = 10
 
-    # Caller-overlap (UpSet) module makes both an exon-based view (its own,
-    # stricter exon-overlap threshold, tighter than the tertile-sensitivity
-    # panel's) and a relaxed-BSJ view (boundary tolerance in bp). A caller
-    # can score very differently on the two, see overlap.py's module
-    # docstring.
+    # Caller-overlap (UpSet) module: exon-based and relaxed-BSJ views.
     overlap_min_overlap: float = 0.95
     overlap_bsj_tolerance: int = 10
 
-    # Isoform-detection module's reciprocal_overlap strategies: how close a
-    # caller's exon structure must be to a specific GT isoform to count as
-    # that isoform (not just its BSJ), rather than a different isoform at
-    # the same locus. 99% allows only trivial boundary noise; 90% allows a
-    # real chunk of mismatched sequence while still requiring the same
-    # overall structure, not a different one. Both tighter than
-    # overlap_min_overlap on purpose, since this discriminates between real
-    # isoforms, not just "was a locus found at all".
+    # Isoform-detection reciprocal_overlap strategies: how close a caller's
+    # exon structure must be to a specific GT isoform to count as that
+    # isoform. 99% = trivial boundary noise only; 90% = allows a real
+    # mismatched chunk while keeping the same overall structure.
     isoform_overlap_param_sets: list = field(default_factory=_default_isoform_overlap_param_sets)
+
+    # "isoform_level" strategy: relaxed_bsj AND exon_based (>= this fraction) both hold.
+    isoform_level_min_overlap: float = 0.99
+
+    # performance.py's plot_pr_scatter_isoform tiers: full = exact BSJ +
+    # 100% overlap, strict = +/-Nbp BSJ + 99% overlap, relaxed = +/-Nbp BSJ + 90% overlap.
+    isoform_match_levels: list = field(default_factory=_default_isoform_match_levels)
 
     run_name_template: str = "{species}_run{i}"
     n_runs: int = 3
@@ -144,6 +147,9 @@ class BenchmarkConfig:
         for p in self.isoform_overlap_param_sets:
             if not {"tag", "min_overlap"} <= set(p):
                 raise ValueError(f"isoform_overlap_param_sets entry missing required keys: {p}")
+        for p in self.isoform_match_levels:
+            if not {"tag", "bsj_tolerance", "min_overlap"} <= set(p):
+                raise ValueError(f"isoform_match_levels entry missing required keys: {p}")
 
     @property
     def quant_keys(self) -> list:

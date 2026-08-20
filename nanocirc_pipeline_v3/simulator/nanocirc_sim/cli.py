@@ -78,6 +78,9 @@ def _add_pool_select_parser(subparsers):
     p.add_argument("--ground-truth", default=None,
                     help="ground_truth.tsv from `simulate`. With --subsample-to, also writes "
                          "run_circrnas.bed and run_ground_truth.tsv for this run")
+    p.add_argument("--shortfall-profile-out", default=None,
+                    help="Also write a NanoSim expression profile (TPM = target - available) "
+                         "for every circRNA short of its target, for a follow-up top-up round")
     return p
 
 
@@ -177,8 +180,9 @@ def _cmd_pool_select(args) -> int:
 
     from .pool_select import (
         deficient_circle_ids, filter_plan_to_selected, plan_run_targets, plan_selection,
-        run_selected_read_ids, select_run_reads, selected_read_ids, write_run_bed,
-        write_run_ground_truth_tsv, write_selected_fastq, write_selection_stats,
+        run_selected_read_ids, select_run_reads, selected_read_ids, undersupplied_shortfalls,
+        write_run_bed, write_run_ground_truth_tsv, write_selected_fastq, write_selection_stats,
+        write_shortfall_profile,
     )
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -188,6 +192,13 @@ def _cmd_pool_select(args) -> int:
     deficient = deficient_circle_ids(plan)
     with open(os.path.join(args.outdir, "deficient_circle_ids.txt"), "w") as fh:
         fh.write("\n".join(deficient) + ("\n" if deficient else ""))
+
+    if args.shortfall_profile_out:
+        shortfalls = undersupplied_shortfalls(plan)
+        write_shortfall_profile(shortfalls, args.shortfall_profile_out)
+        print(f"{len(shortfalls)} circRNA(s) short of their target "
+              f"(total shortfall {sum(shortfalls.values())} reads), profile written to: "
+              f"{args.shortfall_profile_out}")
 
     if args.subsample_to is not None:
         run_targets = plan_run_targets(plan, args.subsample_to, args.seed)

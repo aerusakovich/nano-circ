@@ -1,9 +1,7 @@
-"""Read-count correlation between each quantifier and ground truth, for all
-3 structural strategies (strict_bsj, relaxed_bsj, exon_based), the same
-strategies performance.py scores TP/FP/FN with. strict_bsj and relaxed_bsj
-match by coordinate (exact, or within a bp tolerance). exon_based matches
-by real exon overlap, going through the same bedtools check performance.py
-uses, not a coordinate distance.
+"""Read-count correlation between each quantifier and ground truth, for the
+same strategies performance.py scores TP/FP/FN with (strict_bsj/relaxed_bsj/
+exon_based/isoform_level, full/strict/relaxed). See matching.py's module
+docstring for what each strategy matches on.
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -13,58 +11,75 @@ import pandas as pd
 from matplotlib.colors import Normalize
 from scipy import stats
 
-from .bed_io import empty_bed_df, read_bed
-from .callers import (load_nanocirc_locus_counts, load_tier_membership,
-                       load_tool_locus_counts, nanocirc_catalog_bed_df)
+from .bed_io import read_bed
+from .callers import (load_nanocirc_isoform_bed_counts, load_nanocirc_locus_counts, load_tier_membership,
+                       load_tool_isoform_bed_counts, load_tool_locus_counts)
 from .gt import count_reads, load_gt_loci
-from .matching import (STRATEGY_TITLES, StructuralMatcher, collapse_near_duplicates,
-                        match_pairs_by_strategy, match_pred_to_pred, strategy_footnote)
+from .matching import (ISOFORM_MATCH_TAGS, STRATEGY_TITLES, StructuralMatcher, collapse_near_duplicates,
+                        isoform_match_level_params, match_pairs_by_strategy,
+                        match_pairs_by_strategy_isoform_resolved, match_pred_to_pred, strategy_footnote)
 from .viz import sig_stars
+
+_BED12_STRATEGIES = ("exon_based", "isoform_level") + ISOFORM_MATCH_TAGS
 
 
 def build_long_df(paths, config, species: str, strategy: str = "relaxed_bsj") -> pd.DataFrame:
-    """One row per (bsj_id, run, quant): gt_expr (GT truth) + pred_expr
-    (matched count for this strategy, 0 if unmatched). Each NanoCirc tier
-    only counts a matched row's reads if that row's own bsj_id is a member
-    of that tier's native bed12. NanoCirc's own matches are collapsed via
-    collapse_near_duplicates (max, not sum) before aggregating, since
-    multiple catalog entries near the same GT locus are near-duplicate
-    representations of one signal, not independent partial counts."""
+    is_isoform_resolved = strategy in ISOFORM_MATCH_TAGS
+    needs_gt_bed = strategy in _BED12_STRATEGIES
     matcher = StructuralMatcher(config.bedtools_bin, genome_sizes_file=paths.genome_sizes_file) \
-        if strategy == "exon_based" else None
+        if strategy in _BED12_STRATEGIES else None
     rows = []
     for run in paths.runs:
         gt_df = load_gt_loci(paths, run)
         gt_map = dict(zip(gt_df["bsj_id"], gt_df["n_reads_confirmed"]))
-        gt_bed_df = read_bed(paths.gt_prefiltered_bed12(run)) if strategy == "exon_based" else None
+        gt_bed_df = read_bed(paths.gt_prefiltered_bed12(run)) if needs_gt_bed else None
         work = None
-        if strategy == "exon_based":
+        if strategy in _BED12_STRATEGIES:
             work = paths.bedtools_work_dir / "expression" / strategy / run
             work.mkdir(parents=True, exist_ok=True)
 
+        gt_iso = {r.row_id: (f"{r.chrom}:{r.start}-{r.end}:{r.strand}", int(r.score))
+                  for r in gt_bed_df.itertuples()} if needs_gt_bed else None
+
         for tool in config.tools:
-            call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
-            if strategy == "exon_based":
-                call_bed_path = paths.caller_bed_path(run, tool, config.tiers)
-                call_bed_df = read_bed(call_bed_path) if call_bed_path.exists() else empty_bed_df()
+            if strategy in _BED12_STRATEGIES:
+                call_df = None
+                call_bed_df = load_tool_isoform_bed_counts(paths, run, tool)
             else:
+                call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
                 call_bed_df = None
-            matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
-            for bid, gt_expr in gt_map.items():
-                pred = sum(n for n, _ in matched.get(bid, []))
-                rows.append({"bsj_id": bid, "run": run, "quant": tool, "gt_expr": gt_expr, "pred_expr": pred})
+            if is_isoform_resolved:
+                matched = match_pairs_by_strategy_isoform_resolved(strategy, call_bed_df, gt_bed_df, config, matcher, work)
+                for g_row_id, (bid, gt_expr) in gt_iso.items():
+                    pred = sum(n for n, _ in matched.get(g_row_id, []))
+                    rows.append({"bsj_id": bid, "run": run, "quant": tool, "gt_expr": gt_expr, "pred_expr": pred})
+            else:
+                matched = match_pairs_by_strategy(strategy, call_df, gt_df, config, matcher, call_bed_df, gt_bed_df, work)
+                for bid, gt_expr in gt_map.items():
+                    pred = sum(n for n, _ in matched.get(bid, []))
+                    rows.append({"bsj_id": bid, "run": run, "quant": tool, "gt_expr": gt_expr, "pred_expr": pred})
 
         nc_df = load_nanocirc_locus_counts(paths, run)
-        nc_bed_df = nanocirc_catalog_bed_df(paths, run, work) if strategy == "exon_based" else None
-        nc_matched = match_pairs_by_strategy(strategy, nc_df, gt_df, config, matcher, nc_bed_df, gt_bed_df,
-                                              work, extra_col="base_bsj_id")
+        nc_bed_df = load_nanocirc_isoform_bed_counts(paths, run, None, work) if strategy in _BED12_STRATEGIES else None
         tier_members = load_tier_membership(paths, config.tiers)
-        for tier in config.tiers:
-            members = tier_members[tier]
-            for bid, gt_expr in gt_map.items():
-                candidates = [(n, src_bid) for n, src_bid in nc_matched.get(bid, []) if src_bid in members]
-                pred = collapse_near_duplicates(candidates)
-                rows.append({"bsj_id": bid, "run": run, "quant": tier, "gt_expr": gt_expr, "pred_expr": pred})
+        if is_isoform_resolved:
+            nc_matched = match_pairs_by_strategy_isoform_resolved(strategy, nc_bed_df, gt_bed_df, config, matcher,
+                                                                    work, extra_col="base_bsj_id")
+            for tier in config.tiers:
+                members = tier_members[tier]
+                for g_row_id, (bid, gt_expr) in gt_iso.items():
+                    candidates = [(n, src_bid) for n, src_bid in nc_matched.get(g_row_id, []) if src_bid in members]
+                    pred = collapse_near_duplicates(candidates)
+                    rows.append({"bsj_id": bid, "run": run, "quant": tier, "gt_expr": gt_expr, "pred_expr": pred})
+        else:
+            nc_matched = match_pairs_by_strategy(strategy, nc_df, gt_df, config, matcher, nc_bed_df, gt_bed_df,
+                                                  work, extra_col="base_bsj_id")
+            for tier in config.tiers:
+                members = tier_members[tier]
+                for bid, gt_expr in gt_map.items():
+                    candidates = [(n, src_bid) for n, src_bid in nc_matched.get(bid, []) if src_bid in members]
+                    pred = collapse_near_duplicates(candidates)
+                    rows.append({"bsj_id": bid, "run": run, "quant": tier, "gt_expr": gt_expr, "pred_expr": pred})
     return pd.DataFrame(rows)
 
 
@@ -72,42 +87,42 @@ def build_tool_pair_df(paths, config, species: str, strategy: str = "relaxed_bsj
     """One row per (nanocirc-catalog-locus, run) with its own count and each
     tool's matched count (for this strategy), for the NanoCirc-vs-tool
     scatter panels."""
+    is_bed12 = strategy in _BED12_STRATEGIES
     tol = 0 if strategy == "strict_bsj" else config.gt_match_tolerance
-    matcher = StructuralMatcher(config.bedtools_bin, genome_sizes_file=paths.genome_sizes_file) \
-        if strategy == "exon_based" else None
+    matcher = StructuralMatcher(config.bedtools_bin, genome_sizes_file=paths.genome_sizes_file) if is_bed12 else None
     rows = []
     for run in paths.runs:
-        nc_df = load_nanocirc_locus_counts(paths, run).reset_index(drop=True)
-        row_data = {i: {"bsj_id": f"{r.chrom}:{r.start}-{r.end}:{r.strand}", "run": run,
-                        "nanocirc_count": r.n_reads} for i, r in nc_df.iterrows()}
-
-        if strategy == "exon_based":
-            coord_to_i = {(r.chrom, r.start, r.end, r.strand): i for i, r in nc_df.iterrows()}
+        if is_bed12:
             work = paths.bedtools_work_dir / "expression" / strategy / run
             work.mkdir(parents=True, exist_ok=True)
-            nc_bed_df = nanocirc_catalog_bed_df(paths, run, work)
-            nc_bed_by_id = {r.row_id: r for r in nc_bed_df.itertuples()}
+            nc_bed_df = load_nanocirc_isoform_bed_counts(paths, run, None, work)
+            row_data = {i: {"bsj_id": r.name, "run": run, "nanocirc_count": r.n_reads}
+                        for i, r in nc_bed_df.iterrows()}
+        else:
+            nc_df = load_nanocirc_locus_counts(paths, run).reset_index(drop=True)
+            row_data = {i: {"bsj_id": f"{r.chrom}:{r.start}-{r.end}:{r.strand}", "run": run,
+                            "nanocirc_count": r.n_reads} for i, r in nc_df.iterrows()}
 
         for tool in config.tools:
-            call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
             agg = {}
-            if strategy == "exon_based":
-                call_bed_path = paths.caller_bed_path(run, tool, config.tiers)
-                call_bed_df = read_bed(call_bed_path) if call_bed_path.exists() else empty_bed_df()
-                count_by_coord = {(r.chrom, r.start, r.end, r.strand): r for r in call_df.itertuples()}
+            if is_bed12:
+                call_bed_df = load_tool_isoform_bed_counts(paths, run, tool)
+                if strategy == "exon_based":
+                    pairs = matcher.exon_based_pairs(call_bed_df, nc_bed_df, work, min_overlap=config.tp_min_overlap)
+                elif strategy == "isoform_level":
+                    pairs = matcher.isoform_level_pairs(call_bed_df, nc_bed_df, work, tolerance=config.gt_match_tolerance,
+                                                         min_overlap=config.isoform_level_min_overlap)
+                else:
+                    tier_tol, tier_min_ov = isoform_match_level_params(config, strategy)
+                    pairs = matcher.isoform_level_pairs(call_bed_df, nc_bed_df, work, tolerance=tier_tol,
+                                                         min_overlap=tier_min_ov)
                 call_bed_by_id = {r.row_id: r for r in call_bed_df.itertuples()}
-                pairs = matcher.exon_based_pairs(call_bed_df, nc_bed_df, work, min_overlap=config.tp_min_overlap)
                 for c_row_id, nc_row_id in pairs:
-                    c_bed = call_bed_by_id[c_row_id]
-                    count_row = count_by_coord.get((c_bed.chrom, c_bed.start, c_bed.end, c_bed.strand))
-                    if count_row is None:
+                    if nc_row_id not in row_data:
                         continue
-                    nc_bed = nc_bed_by_id[nc_row_id]
-                    idx = coord_to_i.get((nc_bed.chrom, nc_bed.start, nc_bed.end, nc_bed.strand))
-                    if idx is None:
-                        continue
-                    agg[idx] = agg.get(idx, 0) + count_row.n_reads
+                    agg[nc_row_id] = agg.get(nc_row_id, 0) + call_bed_by_id[c_row_id].n_reads
             else:
+                call_df = load_tool_locus_counts(paths, run, tool, config.tiers)
                 pairs = match_pred_to_pred(call_df, nc_df, tol)
                 for idx, cnt in pairs:
                     agg[idx] = agg.get(idx, 0) + cnt
@@ -199,8 +214,8 @@ def _draw_nanocirc_vs_tool_panel(ax, df, tool, label, cmap, rng):
 
 def plot_correlation_summary(tool_pair_df, corr_df, config, species: str, n_reads: int, n_runs: int, out_path,
                               strategy: str = "relaxed_bsj") -> None:
-    fig = plt.figure(figsize=(16, 7.5))
-    gs = fig.add_gridspec(1, 2, wspace=0.35, top=0.85)
+    fig = plt.figure(figsize=(18, 7.5))
+    gs = fig.add_gridspec(1, 2, wspace=0.55, top=0.85, width_ratios=[1, 1.15])
     fig.suptitle(f"Expression agreement between tools and modes "
                  f"({species.capitalize()}, {STRATEGY_TITLES[strategy]} match, {n_runs} runs, {n_reads:,} reads)",
                  fontsize=16, fontweight="bold", y=0.98)
@@ -231,7 +246,8 @@ def plot_correlation_summary(tool_pair_df, corr_df, config, species: str, n_read
     im = ax2.imshow(hm, cmap="RdYlGn", aspect="auto", vmin=0, vmax=1)
     ax2.set_xticks(range(len(metrics))); ax2.set_xticklabels(metric_labels, fontsize=12, fontweight="bold")
     ax2.set_yticks(range(len(quant_keys)))
-    ax2.set_yticklabels([quant_labels[q] for q in quant_keys], fontsize=12, fontweight="bold")
+    ax2.set_yticklabels([f"{quant_labels[q]}\nn={cdf2.loc[q, 'n_detected']:,.0f}" for q in quant_keys],
+                         fontsize=12, fontweight="bold")
     sd_cols = {"pearson_r": "pearson_r_sd", "spearman_rho": "spearman_rho_sd", "r_squared": None}
     for i, q in enumerate(quant_keys):
         for j, m in enumerate(metrics):
@@ -243,7 +259,7 @@ def plot_correlation_summary(tool_pair_df, corr_df, config, species: str, n_read
                 sd_txt = f" +/-{cdf2.loc[q, sd_col]:.3f}" if sd_col else ""
                 txt = f"{v:.3f}{sd_txt}\n({sig_stars(cdf2.loc[q, p_cols[m]])})"
             ax2.text(j, i, txt, ha="center", va="center", fontsize=10, fontweight="bold")
-    ax2.set_title("Correlation vs Ground Truth (mean across runs)", fontsize=13, fontweight="bold")
+    ax2.set_title("Correlation vs Ground truth (mean across runs)", fontsize=13, fontweight="bold")
     plt.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
     ax2.text(0.5, -0.10, "*** p<0.001, ** p<0.01, * p<0.05, ns = not significant. Mean +/- sd across runs.",
              transform=ax2.transAxes, ha="center", va="top", fontsize=8, color="#888888")
@@ -253,13 +269,10 @@ def plot_correlation_summary(tool_pair_df, corr_df, config, species: str, n_read
 
 
 def run_expression_analysis(paths, config, species: str, strategies=None) -> pd.DataFrame:
-    """Runs the expression correlation analysis for each of the 3 structural
-    strategies (default: all 3). relaxed_bsj keeps the plain, unsuffixed
-    file names (the long-standing default this benchmark has always used).
-    strict_bsj and exon_based get a strategy suffix. Returns the
-    relaxed_bsj correlation table, for callers that only need one summary
-    number."""
-    strategies = strategies or ["relaxed_bsj", "strict_bsj", "exon_based"]
+    """Runs the expression correlation analysis for relaxed_bsj, strict_bsj,
+    exon_based, full, strict, relaxed (default: all 6). Returns the
+    relaxed_bsj correlation table."""
+    strategies = strategies or ["relaxed_bsj", "strict_bsj", "exon_based", "full", "strict", "relaxed"]
     n_reads = count_reads(paths.run_fastq(paths.runs[0]))
     default_corr_df = None
 

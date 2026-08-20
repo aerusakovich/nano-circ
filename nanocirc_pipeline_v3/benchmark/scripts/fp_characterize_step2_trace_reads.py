@@ -1,46 +1,11 @@
 #!/usr/bin/env python3
-"""
-Step 2 of the false-positive characterization behind docs/benchmark.md's
-"What are these false positives, really?" tables. Consumes
-fp_characterize_step1_match_gt.py's output CSV for the same --caller.
+"""Step 2 of FP characterization (consumes step1's output CSV): traces each
+FP locus's supporting reads back to nanocirc_sim ground truth, classifies
+each read as linear / correct-boundary-wrong-strand / boundary-noise /
+different-locus, and reports repeat overlap.
 
-Traces every FP locus's supporting reads back to the nanocirc_sim
-simulator's own ground truth (circRNA_metadata.tsv) via each tool's native
-per-locus read-evidence output, and classifies every supporting read into
-exactly one bucket:
-  - not from a circle at all (linear background read, no "_circ" suffix)
-  - real circle, correct boundary (<=10bp of true source) and correct strand
-    (pure boundary-precision noise)
-  - real circle, correct boundary (<=10bp) but WRONG strand (e.g. an
-    antisense-type true circle called on the host gene's sense strand)
-  - real circle, called at a different/distant locus (>50bp from true source,
-    or 11-50bp, both folded into "different locus" for the published table)
-Also reports what fraction of each locus set (not reads) overlaps a UCSC
-RepeatMasker repeat.
-
-Three modes, set by --mode:
-  - tool:   --caller is a raw tool (cirilong/circfl/isocirc/circnick) run
-            standalone. Traces ALL of that tool's own FPs (every FP locus
-            is single-tool support by construction, see step1).
-  - sliced: --caller is a nanocirc tier. Traces only the tier's FP loci
-            supported by exactly one tool (n_tools==1), one row per
-            supporting tool per run, same as this script's original
-            discovery-only behaviour.
-  - pooled: --caller is a nanocirc tier. Traces ALL of the tier's FP loci
-            regardless of n_tools, one row per run (not sliced by tool).
-            A multi-tool-supported locus has its reads traced through the
-            UNION of every one of its supporting tools' native read
-            evidence at that locus, deduped by read_id first (the same
-            physical read can appear in more than one tool's own report of
-            the same locus).
-
-Requires each run's native per-tool output (isocirc.out, CIRI-long's
-.reads, CircFL-seq's circFL_Normal_pass.txt, CircNick-LRS's own BAM via
-`bedtools bamtobed`) and the simulator's circRNA_metadata.tsv, which encodes
-each true circle's own chrom/start/end/strand plus circ_type. Read IDs
-carry their true source ID directly in the header
-(`<circ_type><NNNNNNN>_..._circ` for simulated circles,
-`ENST...` for linear background, no further guessing needed).
+--mode: tool (raw tool's own FPs), sliced (tier FPs with single-tool
+support only), pooled (all tier FPs, reads deduped across supporting tools).
 
 Usage:
     python fp_characterize_step2_trace_reads.py \\

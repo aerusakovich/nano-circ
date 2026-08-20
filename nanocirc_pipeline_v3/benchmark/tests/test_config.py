@@ -42,3 +42,26 @@ def test_validate_rejects_missing_tool_label():
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_isoform_match_levels_default_tags():
+    cfg = BenchmarkConfig.default()
+    tags = [p["tag"] for p in cfg.isoform_match_levels]
+    assert tags == ["full", "strict", "relaxed"]
+
+
+def test_isoform_match_levels_full_is_exact_and_100pct():
+    cfg = BenchmarkConfig.default()
+    full = next(p for p in cfg.isoform_match_levels if p["tag"] == "full")
+    assert full["bsj_tolerance"] == 0
+    assert full["min_overlap"] == 1.0
+
+
+def test_validate_rejects_isoform_match_levels_missing_keys():
+    cfg = BenchmarkConfig.default()
+    cfg.isoform_match_levels.append({"tag": "broken"})
+    try:
+        cfg.validate()
+        assert False, "expected ValueError"
+    except ValueError:
+        pass

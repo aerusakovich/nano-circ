@@ -44,7 +44,7 @@ def read_bed(path, dedup=True):
 
 def empty_bed_df():
     """Empty DataFrame with read_bed's column set, for a tool that produced
-    no output file at all (e.g. disabled via --run_<tool> false) rather than
+    no output file at all (e.g. disabled with --run_<tool> false) rather than
     an empty one."""
     return pd.DataFrame(columns=BED12_COLS + ["row_id", "spliced_len"])
 

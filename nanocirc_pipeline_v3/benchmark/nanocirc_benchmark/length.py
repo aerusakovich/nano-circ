@@ -82,17 +82,19 @@ def plot_length_barplot(paths, config, species: str, out_path=None) -> pd.DataFr
 
 
 def plot_contingency_heatmap(paths, config, species: str, metrics_csv_tag="relaxed_10_75", out_path=None):
-    """Faceted by the 3 matching strategies (strict_bsj, relaxed_bsj,
-    exon_based), sourced from benchmark_metrics_<species>_<tag>.csv.
-    strict_bsj is an exact match with no parameters, so it is identical
-    whichever tag it is read from."""
+    """Faceted by the 4 matching strategies (strict_bsj, relaxed_bsj,
+    exon_based, isoform_level), sourced from
+    benchmark_metrics_<species>_<tag>.csv. strict_bsj and isoform_level are
+    both tag-invariant (fixed config values, not the tag's own bsj_tolerance
+    /min_overlap), so each is identical whichever tag it is read from."""
     quant_keys = config.quant_keys
     quant_labels = {**config.tool_labels, **config.tier_labels}
-    strategy_label_map = {"strict_bsj": "Strict BSJ", "relaxed_bsj": "Relaxed BSJ", "exon_based": "Exon-based"}
-    strategies = ["strict_bsj", "relaxed_bsj", "exon_based"]
+    strategy_label_map = {"strict_bsj": "Strict BSJ", "relaxed_bsj": "Relaxed BSJ", "exon_based": "Exon-based",
+                           "isoform_level": "Isoform-level"}
+    strategies = ["strict_bsj", "relaxed_bsj", "exon_based", "isoform_level"]
 
     full_csv = paths.bench_dir / f"benchmark_metrics_{species}_{metrics_csv_tag}.csv"
-    fig, axes = plt.subplots(3, 3, figsize=(17, 14), sharey=False)
+    fig, axes = plt.subplots(4, 3, figsize=(17, 18.5), sharey=False)
     mc = {"TP": "#2ECC71", "FP": "#E74C3C", "FN": "#95A5A6"}
 
     cdf_all = pd.read_csv(full_csv)
@@ -128,22 +130,17 @@ def plot_contingency_heatmap(paths, config, species: str, metrics_csv_tag="relax
 
 
 def plot_gt_coverage_stacked(paths, config, species: str, metrics_csv_tag="relaxed_10_75", out_path=None):
-    """GT-normalized stacked bar per caller. Green (recovered) plus grey
-    (missed) always sum to exactly 100% of ground truth, so the split shows
-    that caller's recall directly. Red (FP) stacks on top as a separate
-    overshoot above the 100% line, on the same scale, so a caller with many
-    false calls visibly shoots past 100.
+    """GT-normalized stacked bar per caller: green (recovered) + grey
+    (missed) sum to 100% of ground truth; red (FP) stacks on top as overshoot.
 
-    Uses FN and each run's own GT total to compute recovered/missed, not
-    the CSV's "TP" column. TP counts matched caller rows, not matched GT
-    rows, and those two can differ under relaxed matching (one caller row
-    can satisfy several GT rows). Using GT-side counts keeps the
-    green+grey=100% rule always true.
-    """
+    Uses FN and each run's own GT total, not the CSV's "TP" column, since TP
+    counts matched caller rows (can differ from matched GT rows under
+    relaxed matching)."""
     quant_keys = config.quant_keys
     quant_labels = {**config.tool_labels, **config.tier_labels}
-    strategy_label_map = {"strict_bsj": "Strict BSJ", "relaxed_bsj": "Relaxed BSJ", "exon_based": "Exon-based"}
-    strategies = ["strict_bsj", "relaxed_bsj", "exon_based"]
+    strategy_label_map = {"strict_bsj": "Strict BSJ", "relaxed_bsj": "Relaxed BSJ", "exon_based": "Exon-based",
+                           "isoform_level": "Isoform-level"}
+    strategies = ["strict_bsj", "relaxed_bsj", "exon_based", "isoform_level"]
     mc = {"TP": "#2ECC71", "FP": "#E74C3C", "FN": "#95A5A6"}
 
     gt_totals = {run: len(read_bed(paths.gt_prefiltered_bed12(run))) for run in paths.runs}
@@ -156,7 +153,7 @@ def plot_gt_coverage_stacked(paths, config, species: str, metrics_csv_tag="relax
     cdf_all["missed_pct"] = 100 * cdf_all["FN"] / cdf_all["gt_total"]
     cdf_all["fp_pct"] = 100 * cdf_all["FP"] / cdf_all["gt_total"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(21, 6.5), sharey=True)
+    fig, axes = plt.subplots(1, 4, figsize=(28, 6.5), sharey=True)
     max_top = 100.0
     for row_idx, strategy in enumerate(strategies):
         sdf = cdf_all[cdf_all["strategy"] == strategy]

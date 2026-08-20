@@ -1,0 +1,21 @@
+{
+  "datasets": {
+    "species_human": {"root": "species_benchmark", "species_tag": "human", "group": "species"},
+    "species_mouse": {"root": "species_benchmark", "species_tag": "mouse", "group": "species"},
+    "wetlab_circfl": {"root": "wet_lab_benchmark/protocols", "species_tag": "circfl", "group": "wet_lab"},
+    "wetlab_ciri_long": {"root": "wet_lab_benchmark/protocols", "species_tag": "ciri_long", "group": "wet_lab"},
+    "wetlab_isocirc": {"root": "wet_lab_benchmark/protocols", "species_tag": "isocirc", "group": "wet_lab"},
+    "wetlab_isocirc_no_cirilong": {"root": "wet_lab_benchmark/isocirc_no_cirilong", "species_tag": "isocirc", "group": "wet_lab"},
+    "database_human": {"root": "database_benchmark", "species_tag": "human", "group": "database"}
+  },
+  "drop_callers": ["cirilong"],
+  "paired_distances": [
+    ["database_human", "species_human", "Annotated (database) vs de novo (synthetic)"],
+    ["database_human", "wetlab_ciri_long", "Annotated (database) vs de novo (synthetic), alt pairing"],
+    ["wetlab_isocirc", "wetlab_circfl", "isoCirc vs circFL-seq protocol"],
+    ["species_human", "species_mouse", "Human vs mouse"],
+    ["wetlab_isocirc", "wetlab_ciri_long", "isoCirc vs CIRI-long protocol"],
+    ["wetlab_ciri_long", "wetlab_circfl", "CIRI-long vs circFL-seq protocol"]
+  ],
+  "group_colors": {"species": "#1b9e77", "wet_lab": "#d95f02", "database": "#7570b3"}
+}

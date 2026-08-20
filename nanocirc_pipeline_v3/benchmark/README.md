@@ -2,7 +2,7 @@
 
 Benchmark for long-read circRNA callers and quantifiers. It scores structural precision/recall, read-count correlation, and detection sensitivity against ground truth.
 
-It does not run any caller itself. It reads outputs already produced by nf-core/nanocirc and the 4 competing tools (isoCirc, circFL-seq, CIRI-long, CircNick-LRS), and scores them.
+It does not run any caller itself. It reads outputs produced by nanocirc pipeline which runs 4 tools (isoCirc, circFL-seq, CIRI-long, CircNick-LRS), creates nanocirc outputs across 4 modes, and scores them.
 
 ## History
 
@@ -18,6 +18,7 @@ Compared to our earlier benchmark (Rusakovich et al., 2026), this version (v3) d
 2. All four tools now run from container images, with upstream bug fixes applied (see Containers below).
 3. circFL-seq is scored for the first time, alongside the other three tools.
 4. Structural matching now also includes BSJ-based matching, both exact (`strict_bsj`) and with tolerance (`relaxed_bsj`, tested at ±5bp and ±10bp), not just exon-based matching.
+5. For runtime and memory requirements we are using nextflow execution reports now.
 
 ### The bedtools `--split`/`-f` bug
 
@@ -177,13 +178,14 @@ See `scripts/run_benchmark.sbatch` for a ready-to-submit SLURM version of the co
 
 ## Metric modules
 
-- **`performance`**: structural precision/recall/F1 for every caller (4 tools plus NanoCirc's 4 confidence tiers), every run, and 3 match strategies (`strict_bsj`, `relaxed_bsj`, `exon_based`). Writes `benchmark_metrics_<species>_<tag>.csv` and a precision/recall scatter plot.
-- **`expression`**: read-count correlation (Pearson, Spearman, R²) between each caller and ground truth, for the same 3 match strategies as `performance`. Writes one CSV and one scatter/heatmap plot per strategy: `expression_correlation_<species>.csv`/`.png` for `relaxed_bsj` (the long-standing default, unsuffixed for backward compatibility), plus `_strict_bsj` and `_exon_based` suffixed versions.
+- **`performance`**: structural precision/recall/F1 for every caller (4 tools plus NanoCirc's 4 confidence tiers), every run, and 4 match strategies (`strict_bsj`, `relaxed_bsj`, `exon_based`, `isoform_level`). Writes `benchmark_metrics_<species>_<tag>.csv` and a precision/recall scatter plot. Also runs `run_isoform_matching` (config's `full`/`strict`/`relaxed` isoform tiers, each a BSJ-boundary check plus an exon-overlap check via `StructuralMatcher.isoform_level_counts`) and plots it separately with `plot_pr_scatter_isoform`, so exact-molecule recovery isn't buried under the structural PR scatter.
+- **`expression`**: read-count correlation (Pearson, Spearman, R²) between each caller and ground truth, for `relaxed_bsj`/`strict_bsj`/`exon_based` plus the `full`/`strict`/`relaxed` isoform tiers (also accepts `isoform_level` directly). Writes one CSV and one scatter/heatmap plot per strategy: `expression_correlation_<species>.csv`/`.png` for `relaxed_bsj` (the long-standing default, unsuffixed for backward compatibility), plus `_strict_bsj`, `_exon_based`, `_full`, `_strict`, and `_relaxed` suffixed versions.
+- **`isoform_expression`**: read-count correlation at true isoform granularity, within shared-BSJ multi-isoform families, at the `full`/`strict`/`relaxed` isoform tiers. `expression`'s correlation collapses to one value per BSJ per side; this module asks whether each individual isoform (not just the locus total) got its own count right, reusing `isoform_detection.py`'s family definition and matching strategies.
 - **`sensitivity`**: does a caller find the circRNA at all, split by ground-truth expression level (Low/Medium/High). Writes a CSV and plot.
-- **`type-classification`**: classifies every circRNA into one of 5 types (`ecirna`, `eicirna`, `cirna`, `antisense`, `intergenic`), the same way nanocirc's own pipeline does. Needs `--gtf`. Writes a CSV and plot per match strategy.
+- **`type-classification`**: classifies every circRNA into one of 5 types (`ecirna`, `eicirna`, `cirna`, `antisense`, `intergenic`), the same way nanocirc's own pipeline does. Needs `--gtf`. Writes a CSV and plot per match strategy (including `isoform_level`).
 - **`overlap`**: an UpSet-style plot showing which circRNAs each caller finds, and where callers agree or disagree. Makes both an exon-based and a relaxed-BSJ version, since a caller can score very differently on each.
 - **`length`**: mature (spliced) length of true-positive calls, by caller. Also makes a TP/FP/FN heatmap, reusing `performance`'s own output (run `performance` first).
-- **`reproducibility`**: a pairwise scatter matrix comparing read counts across every caller and tier, including ground truth, for the same 3 match strategies as `performance`. Writes `reproducibility_pairs_<species>.png` for `relaxed_bsj` (unsuffixed default), plus `_strict_bsj` and `_exon_based` suffixed versions.
+- **`reproducibility`**: a pairwise scatter matrix comparing read counts across every caller and tier, including ground truth, for `relaxed_bsj`/`strict_bsj`/`exon_based` plus the `full`/`strict`/`relaxed` isoform tiers. Writes `reproducibility_pairs_<species>.png` for `relaxed_bsj` (unsuffixed default), plus `_strict_bsj`, `_exon_based`, `_full`, `_strict`, and `_relaxed` suffixed versions.
 
 ## Notes on how matching works
 
@@ -196,11 +198,17 @@ See `scripts/run_benchmark.sbatch` for a ready-to-submit SLURM version of the co
 
 ## FP and FN characterization scripts
 
-`scripts/fp_characterize_step1_match_gt.py` and `scripts/fp_characterize_step2_trace_reads.py` trace every false-positive call back to its supporting reads, and show what those reads really are (a real circular read at the wrong strand, at a different locus, boundary noise, or not circular at all). This is the analysis behind the "What are these false positives?" section of `docs/benchmark.md` (in the `nf_nanocirc_long_read` repo).
+`scripts/fp_characterize_step1_match_gt.py` and `scripts/fp_characterize_step2_trace_reads.py` trace every false-positive call back to its supporting reads, and show what those reads really are (a real circular read at the wrong strand, at a different locus, boundary noise, or not circular at all). This is the analysis for the "What are these false positives?" section of `docs/benchmark.md` (in the `nanocirc_pipeline` repo).
 
-`scripts/fn_characterize.py` compares every missed ground-truth circRNA against every found one, on length, copy number, expression, splice site, and gene context. This is the analysis behind the "What discovery still misses?" section.
+`scripts/fn_characterize.py` compares every missed ground-truth circRNA against every found one, on length, copy number, expression, splice site, and gene context. This is the analysis for the "What discovery still misses?" section.
 
 All three scripts need a real benchmark `dataset_root`, plus the matching `nanocirc_sim` `circRNA_metadata.tsv` and a UCSC RepeatMasker BED file. Run any of them with `--help` to see the full argument list.
+
+## Cross-dataset statistics and PCA
+
+`scripts/statistical_analysis.py` statistically compares two benchmark datasets scored with the same type classifier (any pair, not just one fixed comparison): paired linear regression, Kendall's tau-b/Spearman rho on caller ranking, Mantel-Haenszel pooled odds ratio plus Breslow-Day homogeneity stratified by circRNA type, Wilcoxon signed-rank, and Cohen's d. It reads each side's `classification_results_<strategy>.csv` (written by `type-classification`) and needs only `--dataset1-root`/`--dataset2-root` (plus `--group`/`--strategy`), so it works for synthetic-vs-database, protocol-vs-protocol, or species-vs-species alike. This is the analysis for every "Statistical significance" section of `docs/benchmark.md` (in the `nanocirc_pipeline` repo).
+
+`scripts/pca_analysis.py` is the script used to generate that doc's cross-benchmark PCA figure and pairwise-distance table: one row per dataset (mean precision/recall/F1 across its runs, one column per caller/strategy/threshold/metric combination shared by every dataset), z-score standardized, decomposed with `np.linalg.svd`. It also reports the direct Euclidean distance in that same standardized feature space between dataset pairs differing in exactly one factor (species, protocol, or database-vs-synthetic), to size each factor's effect on a common scale rather than reading it off the PC1/PC2 projection alone. It takes no hardcoded paths: `--config` points to a JSON file listing each dataset's `root`/`species_tag`/`group`, which callers to drop everywhere, and which dataset pairs to report a distance for (`scripts/pca_datasets.example.json` has the exact config used for the published figure, including the real dataset layout); `--root-dir` overrides where each dataset's `root` is resolved from (default: the config file's own directory), so the same config can be pointed at a different copy of the benchmark output.
 
 ## Tests
 

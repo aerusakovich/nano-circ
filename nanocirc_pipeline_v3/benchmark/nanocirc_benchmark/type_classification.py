@@ -1,23 +1,16 @@
-"""circRNA type classification. Uses the same bedtools-overlap algorithm as
-nanocirc's own pipeline (`classify_types()` in `bin/circrna_clean.py` and
-`bin/crossrun_annotate.py`): a circRNA's spliced BED12-block sequence is
-overlapped against gene/exon annotation with `bedtools intersect -split -wo`
-(never `-f`/`-F`, those measure overlap against the unsplit feature length,
-not the per-block spliced length). Classification order:
+"""circRNA type classification, matching nanocirc's own `classify_types()`
+(`bin/circrna_clean.py`, `bin/crossrun_annotate.py`): spliced BED12 blocks
+vs gene/exon annotation with `bedtools intersect -split -wo`.
 
-  any same-strand gene overlap:
-    exon_frac = exon_overlap_bp / spliced_length
-    exon_frac >= 1.0   -> ecirna     (fully covered by same-strand exon)
-    0 < exon_frac < 1  -> eicirna    (partial exon coverage, retains intron)
-    exon_frac == 0     -> cirna      (purely intronic)
-  else same-strand absent, opposite-strand gene overlap -> antisense
-  else no gene overlap on either strand                 -> intergenic
+  same-strand gene overlap, exon_frac = exon_overlap_bp / spliced_length:
+    exon_frac >= 1.0   -> ecirna
+    0 < exon_frac < 1  -> eicirna
+    exon_frac == 0     -> cirna
+  no same-strand overlap, opposite-strand gene overlap -> antisense
+  no gene overlap on either strand                     -> intergenic
 
-Only TP calls (matched to a real GT locus) count toward each type's "% of
-GT" bar. A type label on an unmatched call means nothing. FP calls are
-classified by their own coordinates and shown as a separate red bar on top,
-so a caller that over-calls a type is visible without changing the recall
-numbers.
+Only TP calls count toward a type's "% of GT" bar; FP calls are classified
+separately and shown as a red bar on top.
 """
 import subprocess
 from collections import Counter, defaultdict
@@ -39,6 +32,7 @@ ALL_TYPES = ["ecirna", "eicirna", "cirna", "antisense", "intergenic"]
 STRATEGIES = [
     ("exon_based", "exon"),
     ("relaxed_bsj", "relaxed_bsj"),
+    ("isoform_level", "isoform_level"),
     ("strict_bsj", "strict_bsj"),
 ]
 
@@ -48,6 +42,9 @@ def _strategy_label(strategy, config):
         return f"Exon match (reciprocal overlap {config.tp_min_overlap * 100:.0f}%)"
     if strategy == "relaxed_bsj":
         return f"Relaxed BSJ match (+/-{config.tp_bsj_tolerance}nt)"
+    if strategy == "isoform_level":
+        return (f"Isoform-level match (+/-{config.gt_match_tolerance}nt BSJ AND "
+                 f"{config.isoform_level_min_overlap * 100:.0f}% exon overlap)")
     if strategy == "strict_bsj":
         return "Strict BSJ match"
     raise ValueError(f"unknown strategy: {strategy}")
@@ -149,20 +146,23 @@ def classify_types(df, gene_bed, exon_bed, bedtools_bin, work_dir, id_prefix="x"
 
 def _match_ids(matcher, strategy, caller_df, gt_df, work, config):
     """Returns (tp, fp, fn, matched_gt_row_ids, matched_caller_row_ids) for
-    any of the 3 structural strategies, using each one's own tolerance from
+    any of the 4 structural strategies, using each one's own tolerance from
     config."""
     if strategy == "exon_based":
         return matcher.exon_based_counts(caller_df, gt_df, work, config.tp_min_overlap, return_ids="both")
     if strategy == "relaxed_bsj":
         return matcher.relaxed_bsj_counts(caller_df, gt_df, work, config.tp_bsj_tolerance, return_ids="both")
+    if strategy == "isoform_level":
+        return matcher.isoform_level_counts(caller_df, gt_df, work, config.gt_match_tolerance,
+                                             config.isoform_level_min_overlap, return_ids="both")
     if strategy == "strict_bsj":
         return matcher.strict_bsj_counts(caller_df, gt_df, work, return_ids="both")
     raise ValueError(f"unknown strategy: {strategy}")
 
 
 def run_type_classification(paths, config, species: str) -> dict:
-    """Runs type classification for all 3 structural strategies (exon_based,
-    relaxed_bsj, strict_bsj). A call's type label does not depend on match
+    """Runs type classification for all 4 structural strategies (exon_based,
+    relaxed_bsj, isoform_level, strict_bsj). A call's type label does not depend on match
     strategy, only which calls count as TP/FP does, so it is computed once
     per run and reused across strategies. Returns {strategy: DataFrame},
     and writes one plot and one CSV per strategy."""
@@ -206,7 +206,10 @@ def run_type_classification(paths, config, species: str) -> dict:
                 strat_work.mkdir(parents=True, exist_ok=True)
                 tp, fp, fn, matched_gt_ids, matched_caller_ids = _match_ids(
                     matcher, strategy, caller_df, gt_df, strat_work, config)
-                tp_hist = Counter(gt_types[rid] for rid in matched_gt_ids if rid in gt_types)
+                # Typed by the caller's own structure, not the matched GT row(s)
+                # (a caller row can match >1 near-duplicate GT isoform), so
+                # sum(tp_<type>) == tp exactly.
+                tp_hist = Counter(caller_types[rid] for rid in matched_caller_ids if rid in caller_types)
                 fp_ids = set(caller_df["row_id"]) - matched_caller_ids
                 fp_hist = Counter(caller_types[rid] for rid in fp_ids if rid in caller_types)
 

@@ -97,6 +97,29 @@ def deficient_circle_ids(plan: dict) -> list:
     return [cid for cid, info in plan.items() if info["target"] > 0 and not info["available"]]
 
 
+def undersupplied_shortfalls(plan: dict) -> dict:
+    """{circRNA_id: target - available} for every circRNA short of its target,
+    zero-available circs included. Used to weight a top-up simulation round
+    toward the ones that actually need more reads, instead of every circ
+    equally."""
+    shortfalls = {}
+    for cid, info in plan.items():
+        short = info["target"] - len(info["available"])
+        if info["target"] > 0 and short > 0:
+            shortfalls[cid] = short
+    return shortfalls
+
+
+def write_shortfall_profile(shortfalls: dict, out_path: str) -> None:
+    """NanoSim expression-profile format (ID, count, TPM), TPM set to each
+    circRNA's own shortfall so simulator.py's abundance-proportional sampling
+    puts more reads where the gap is bigger."""
+    with open(out_path, "w") as fh:
+        fh.write("ID\tcount\tTPM\n")
+        for cid, short in sorted(shortfalls.items()):
+            fh.write(f"{cid}\t0\t{short}\n")
+
+
 def plan_run_targets(plan: dict, n_target_total: int, seed: int = 0) -> dict:
     """For one replicate run of `n_target_total` reads, draws each eligible
     circRNA's read count from a Poisson distribution centered on its

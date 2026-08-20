@@ -1,39 +1,10 @@
-"""Isoform-level detection within multi-isoform BSJ families.
+"""Isoform-level detection within multi-isoform BSJ families: for GT loci
+with >1 real isoform, classifies each as true_iso / wrong_iso / missed.
 
-Long-read protocols exist mainly to resolve internal exon structure, not
-just back-splice junction (BSJ) position. This asks a sharper question than
-the rest of the suite's BSJ/exon matching: among GT loci where the same BSJ
-genuinely has more than one real isoform (different internal exon
-structure), how often does each caller recover the right isoform, versus
-call something at the right BSJ with the wrong structure, versus miss the
-BSJ entirely.
-
-Three matching strategies, same three-way classification either way:
-  block_identity          exact block-for-block match (blockSizes/
-                           blockStarts). GT isoforms are precise known
-                           structures, so this is the strict, no-partial-
-                           credit view.
-  reciprocal_overlap_99   >=99% reciprocal exon overlap, via the same
-                           exon_based approach matching.py uses elsewhere.
-                           Allows only boundary noise: in practice
-                           this is "the exact isoform, +- several bp".
-  reciprocal_overlap_90   >=90% reciprocal exon overlap. Allows mismatch, still
-                           requiring substantially the same structure, not
-                           a different one.
-Both reciprocal_overlap thresholds live in config.isoform_overlap_param_sets
-(same {tag, min_overlap} shape as structural_param_sets elsewhere), tighter
-than overlap.py's 95% on purpose: this discriminates between real isoforms
-at one locus, not just "was a locus found at all".
-
-For the reciprocal_overlap strategies, a GT isoform that isn't a true_iso
-match is 'wrong_iso' only if the caller made some call within
-config.gt_match_tolerance bp of its own BSJ boundary (not literally the
-same boundary): the strategy already forgives small boundary noise on the
-inside (the overlap score), so the found/missed split should use the same
-tolerance rather than an exact-string test, or a caller with a slightly
-shifted BSJ call would wrongly register as having missed the locus
-entirely. block_identity keeps the exact-string test throughout, matching
-its own no-tolerance philosophy.
+Strategies: block_identity (exact block match), reciprocal_overlap_99/90
+(>=99%/90% reciprocal exon overlap, config.isoform_overlap_param_sets).
+For the reciprocal_overlap strategies, wrong_iso requires a call within
+config.gt_match_tolerance bp of the BSJ; block_identity uses exact match.
 """
 import pandas as pd
 import matplotlib

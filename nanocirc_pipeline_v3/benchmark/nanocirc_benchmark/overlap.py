@@ -1,16 +1,7 @@
-"""UpSet-style caller-overlap plot: every configured tool and NanoCirc tier,
-all matched against GT, pooled across runs. "Detected by caller X" means
-"matched by caller X's calls in at least one run."
-
-Two matching strategies are made, since callers can fail in opposite ways.
-Exon-based rewards correct internal exon/intron structure, but penalizes a
-caller whose BSJ boundary is right but whose block layout differs from GT's.
-Relaxed BSJ rewards accurate genomic positioning, but does not check if the
-exon structure inside is correct. A caller can score very differently on
-the two, so both are made instead of picking one as "the" answer.
-
-With many sets, only the top N intersections by size are plotted (the
-standard UpSet convention). Otherwise the matrix panel becomes unreadable.
+"""UpSet-style caller-overlap plot: every tool and NanoCirc tier matched
+against GT, pooled across runs. Made for both exon_based and relaxed_bsj
+strategies, since a caller can score differently on each. Only the top N
+intersections by size are plotted.
 """
 import matplotlib
 matplotlib.use("Agg")

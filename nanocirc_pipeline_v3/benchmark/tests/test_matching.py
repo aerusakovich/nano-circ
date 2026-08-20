@@ -4,9 +4,32 @@ import pandas as pd
 import pytest
 
 from nanocirc_benchmark.bed_io import BED12_COLS
+from nanocirc_benchmark.config import BenchmarkConfig
 from nanocirc_benchmark.matching import (
-    StructuralMatcher, collapse_near_duplicates, match_pred_to_pred, match_to_gt,
+    StructuralMatcher, collapse_near_duplicates, isoform_match_level_params, match_pred_to_pred, match_to_gt,
 )
+
+
+def test_isoform_match_level_params_full_is_exact_and_100pct():
+    cfg = BenchmarkConfig.default()
+    tol, min_ov = isoform_match_level_params(cfg, "full")
+    assert (tol, min_ov) == (0, 1.0)
+
+
+def test_isoform_match_level_params_relaxed_is_90pct():
+    cfg = BenchmarkConfig.default()
+    tol, min_ov = isoform_match_level_params(cfg, "relaxed")
+    assert tol == cfg.gt_match_tolerance
+    assert min_ov == 0.90
+
+
+def test_isoform_match_level_params_unknown_tag_raises():
+    cfg = BenchmarkConfig.default()
+    try:
+        isoform_match_level_params(cfg, "nonexistent")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
 
 BEDTOOLS = shutil.which("bedtools")
 
@@ -161,6 +184,79 @@ def test_exon_based_counts_distinguishes_isoform_siblings(matcher, tmp_path):
 
 
 @pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
+def test_isoform_level_counts_matches_when_bsj_and_exon_both_close(matcher, tmp_path):
+    gt_df = _bed_df([["chr1", "100", "500", "gt1", "0", "+", "100", "500", "0", "1", "400,", "0,"]])
+    caller_df = _bed_df([["chr1", "102", "498", "c1", "0", "+", "102", "498", "0", "1", "396,", "0,"]])
+    tp, fp, fn = matcher.isoform_level_counts(caller_df, gt_df, tmp_path, tolerance=5, min_overlap=0.99)
+    assert (tp, fp, fn) == (1, 0, 0)
+
+
+@pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
+def test_isoform_level_counts_rejects_close_bsj_but_low_exon_overlap(matcher, tmp_path):
+    # BSJ boundaries are within tolerance, but the caller's own exon
+    # structure only covers half the GT isoform's spliced length. exon_based
+    # alone (a looser threshold) would call this a match; isoform_level's
+    # 99% floor must not.
+    gt_df = _bed_df([["chr1", "100", "500", "gt1", "0", "+", "100", "500", "0", "1", "400,", "0,"]])
+    caller_df = _bed_df([["chr1", "100", "500", "c1", "0", "+", "100", "500", "0", "1", "200,", "0,"]])
+    tp, fp, fn = matcher.isoform_level_counts(caller_df, gt_df, tmp_path, tolerance=5, min_overlap=0.99)
+    assert (tp, fp, fn) == (0, 1, 1)
+    # but exon_based alone (75% threshold) is unaffected and would still miss
+    # this too (200/400=50% < 75%), confirming the fixture itself is sane
+    tp2, fp2, fn2 = matcher.exon_based_counts(caller_df, gt_df, tmp_path, min_overlap=0.75)
+    assert (tp2, fp2, fn2) == (0, 1, 1)
+
+
+@pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
+def test_isoform_level_counts_rejects_high_exon_overlap_but_far_bsj(matcher, tmp_path):
+    # A 50bp shift leaves 350/400=87.5% reciprocal overlap -- well outside
+    # BSJ tolerance, but still enough to satisfy a permissive (0.80) exon
+    # threshold. exon_based alone doesn't require the outer span to be
+    # close and would match at that threshold; isoform_level must not.
+    gt_df = _bed_df([["chr1", "1000", "1400", "gt1", "0", "+", "1000", "1400", "0", "1", "400,", "0,"]])
+    caller_df = _bed_df([["chr1", "1050", "1450", "c1", "0", "+", "1050", "1450", "0", "1", "400,", "0,"]])
+    tp, fp, fn = matcher.isoform_level_counts(caller_df, gt_df, tmp_path, tolerance=5, min_overlap=0.80)
+    assert (tp, fp, fn) == (0, 1, 1)
+    tp2, fp2, fn2 = matcher.exon_based_counts(caller_df, gt_df, tmp_path, min_overlap=0.80)
+    assert (tp2, fp2, fn2) == (1, 0, 0)  # confirms exon_based alone would have matched
+
+
+@pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
+def test_isoform_level_counts_distinguishes_isoform_siblings(matcher, tmp_path):
+    # Same fixture as test_exon_based_counts_distinguishes_isoform_siblings:
+    # isoform_level must show the same TP/FN split, not silently merge the
+    # two same-BSJ structures the way relaxed_bsj would.
+    gt_df = _bed_df([
+        ["chr1", "100", "500", "gt_main", "0", "+", "100", "500", "0", "2", "50,50,", "0,350,"],
+        ["chr1", "100", "500", "gt_iso1", "0", "+", "100", "500", "0", "1", "400,", "0,"],
+    ])
+    caller_df = _bed_df([["chr1", "100", "500", "c1", "0", "+", "100", "500", "0", "2", "50,50,", "0,350,"]])
+    tp, fp, fn = matcher.isoform_level_counts(caller_df, gt_df, tmp_path, tolerance=5, min_overlap=0.99)
+    assert (tp, fp, fn) == (1, 0, 1)
+
+
+@pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
+def test_isoform_level_pairs_excludes_far_bsj_pair(matcher, tmp_path):
+    gt_df = _bed_df([["chr1", "1000", "1400", "gt1", "0", "+", "1000", "1400", "0", "1", "400,", "0,"]])
+    caller_df = _bed_df([["chr1", "1050", "1450", "c1", "0", "+", "1050", "1450", "0", "1", "400,", "0,"]])
+    pairs = matcher.isoform_level_pairs(caller_df, gt_df, tmp_path, tolerance=5, min_overlap=0.80)
+    assert pairs == []
+    # the 50bp shift leaves 350/400=87.5% reciprocal overlap: exon_based
+    # alone (a lower threshold) would still match; isoform_level's BSJ
+    # tolerance check must reject it regardless.
+    exon_pairs = matcher.exon_based_pairs(caller_df, gt_df, tmp_path, min_overlap=0.80)
+    assert exon_pairs == [(0, 0)]  # confirms exon_based alone would have matched
+
+
+@pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
+def test_isoform_level_pairs_includes_close_bsj_and_exon_pair(matcher, tmp_path):
+    gt_df = _bed_df([["chr1", "100", "500", "gt1", "0", "+", "100", "500", "0", "1", "400,", "0,"]])
+    caller_df = _bed_df([["chr1", "102", "498", "c1", "0", "+", "102", "498", "0", "1", "396,", "0,"]])
+    pairs = matcher.isoform_level_pairs(caller_df, gt_df, tmp_path, tolerance=5, min_overlap=0.99)
+    assert pairs == [(0, 0)]
+
+
+@pytest.mark.skipif(BEDTOOLS is None, reason="bedtools not installed")
 def test_relaxed_bsj_counts_return_ids_expands_to_all_isoform_siblings(matcher, tmp_path):
     # Regression test: relaxed_bsj_counts collapses GT isoform siblings
     # sharing one BSJ to a single entity internally (a BSJ-only measure),
@@ -194,7 +290,7 @@ def test_strict_and_relaxed_do_not_multiply_count_isoform_siblings(matcher, tmp_
     assert fn == 1
 
 
-# Unstranded ('.') GT rows are intergenic circles. Strand is a coin flip at
+# Unstranded ('.') GT rows are intergenic circRNAs. Strand is random at
 # simulation time, not a real property, so they must match a caller call on
 # either strand. Without this, every intergenic locus scored 0 true
 # positives, for every caller and tier.
