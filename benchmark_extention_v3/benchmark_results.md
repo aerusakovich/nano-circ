@@ -2,13 +2,13 @@
 
 This benchmark is adapted from our own earlier benchmark study, Rusakovich et al., "Benchmarking circRNA detection tools from long-read sequencing using a data-driven and flexible simulation framework" (Peer Community Journal, 2026; see [CITATIONS.md](https://github.com/aerusakovich/nanocirc_pipeline/blob/main/CITATIONS.md) for the full reference), modified and extended based on our newer findings. 
 
-This page shows benchmark results for 4 individual long-read circRNA detection tools (CIRI-long, circFL-seq, isoCirc, circNICK-lrs) and 4 consensus-based confidence tiers built by nanocirc (see [The four confidence tiers](#the-four-confidence-tiers) below), across wet-lab protocol, species, and annotated-vs-de-novo comparisons. The simulator and benchmark framework are presented in this repo as v3. Results below are from simulated human and mouse datasets, 3 runs each. The consensus tiers are computed by a long-read circRNA pipeline, [nanocirc_pipeline](https://github.com/aerusakovich/nanocirc_pipeline), that runs all 4 tools and pools their output; this repo is the benchmark and simulation framework behind its published numbers.
+This page shows benchmark results for 4 individual long-read circRNA detection tools (CIRI-long, circFL-seq, isoCirc, circNICK-lrs) and 4 consensus-based confidence tiers built by nanocirc (see [The four confidence tiers](#the-four-confidence-tiers) below), across wet-lab protocol, species, and annotated-vs-de-novo comparisons. The simulator and benchmark framework are presented in this repo as v3. Results below are from simulated human and mouse datasets, 3 runs each. The consensus tiers are computed by a long-read circRNA pipeline, [nanocirc_pipeline](https://github.com/aerusakovich/nanocirc_pipeline), that runs all 4 tools and pools their output; this repo is the benchmark and simulation framework behind the published numbers. Simulated datasets are available[nanocirc_pipeline] (https://doi.org/10.17605/OSF.IO/C2GEJ). 
 
 Several benchmarks are shown below:
 
 - **[Same circRNAs, three wet-lab protocols](#same-circrnas-three-wet-lab-protocols)**: NanoSim's read-error model is characterized from real CIRI-long/isoCIRC and circFL-seq protocols ONT control reads; circRNA type composition and length/exon/splice distributions are the same across all 3 wet-lab methods, circRNA generation based on circRNAs from a human circbase+circatlas catalog. 
 - **[Species benchmark: human vs mouse](#species-benchmark-human-vs-mouse)**: CIRI-long protocol, each species' own circRNA catalog and genome. Any difference here comes from species biology (genome, catalog composition), not the wet-lab protocol, which is fixed to CIRI-long for both.
-- **[Database benchmark: annotated circRNA recovery](#database-benchmark-annotated-circrna-recovery)**: annotated vs de novo circRNA recovery. Same simulation and pipeline as above, but circRNAs are sampled from a real human circBase/circAtlas catalog instead of generated de novo, so tools are evaluated on already-known, already-catalogued circRNAs instead of novel unannotated ones.
+- **[Database benchmark: annotated circRNA recovery](#database-benchmark-annotated-circrna-recovery)**: annotated vs de novo circRNA recovery. Same simulation and pipeline as above, but circRNAs are randomly sampled from a human circBase/circAtlas catalog instead of generated de novo, so tools are evaluated on already-known, already-catalogued circRNAs instead of novel, simulated and unannotated ones.
 
 ## The four confidence tiers
 
@@ -44,10 +44,10 @@ Mean precision (P) / recall (R) / F1 across 3 runs, exon-based matching, per nan
 | circFL-seq alone | P 0.79 / R 0.21 / F1 0.33 | P 0.77 / R 0.25 / F1 0.37 | P 0.74 / R 0.23 / F1 0.36 |
 | CIRI-long alone | P 0.74 / R 0.34 / F1 0.46 | P 0.77 / R 0.41 / F1 0.53 | P 0.77 / R 0.03 / F1 0.05 |
 | circNICK-lrs alone | P 0.24 / R 0.09 / F1 0.13 | P 0.24 / R 0.10 / F1 0.14 | P 0.22 / R 0.10 / F1 0.14 |
-| `discovery` | P 0.68 / R 0.43 / F1 0.53 | P 0.69 / R 0.52 / F1 0.59 | P 0.66 / R 0.26 / F1 0.37 |
-| `balanced_recall` | P 0.74 / R 0.42 / F1 0.53 | P 0.77 / R 0.51 / F1 0.61 | P 0.81 / R 0.25 / F1 0.38 |
-| `balanced_precision` | P 0.85 / R 0.22 / F1 0.35 | P 0.85 / R 0.28 / F1 0.42 | P 0.85 / R 0.09 / F1 0.17 |
-| `high_confidence` | P 0.86 / R 0.07 / F1 0.14 | P 0.88 / R 0.10 / F1 0.17 | P 0.87 / R 0.01 / F1 0.02 |
+| `discovery` | P 0.68 / R 0.43 / F1 0.53 | P 0.69 / R 0.52 / F1 0.59 | P 0.66 / R 0.27 / F1 0.38 |
+| `balanced_recall` | P 0.74 / R 0.42 / F1 0.53 | P 0.77 / R 0.51 / F1 0.61 | P 0.80 / R 0.25 / F1 0.38 |
+| `balanced_precision` | P 0.85 / R 0.22 / F1 0.35 | P 0.85 / R 0.28 / F1 0.42 | P 0.84 / R 0.10 / F1 0.17 |
+| `high_confidence` | P 0.86 / R 0.07 / F1 0.14 | P 0.88 / R 0.10 / F1 0.17 | P 0.86 / R 0.01 / F1 0.02 |
 
 </details>
 
@@ -821,17 +821,17 @@ Mean precision (P) / recall (R) / F1 across the same 3 runs, exon-based matching
 | Tier / tool | CIRI-long included | CIRI-long excluded |
 | --- | --- | --- |
 | isoCirc alone | P 0.87 / R 0.08 / F1 0.15 | P 0.87 / R 0.08 / F1 0.15 |
-| circFL-seq alone | P 0.74 / R 0.23 / F1 0.36 | P 0.74 / R 0.23 / F1 0.36 |
+| circFL-seq alone | P 0.74 / R 0.23 / F1 0.36 | P 0.74 / R 0.23 / F1 0.35 |
 | CIRI-long alone | P 0.77 / R 0.03 / F1 0.05 | not run |
 | circNICK-lrs alone | P 0.22 / R 0.10 / F1 0.14 | P 0.22 / R 0.10 / F1 0.14 |
-| `discovery` | P 0.54 / R 0.28 / F1 0.37 | P 0.66 / R 0.26 / F1 0.37 |
-| `balanced_recall` | P 0.81 / R 0.25 / F1 0.38 | P 0.80 / R 0.24 / F1 0.38 |
-| `balanced_precision` | P 0.85 / R 0.09 / F1 0.17 | P 0.85 / R 0.09 / F1 0.17 |
-| `high_confidence` | P 0.92 / R 0.02 / F1 0.04 | P 0.87 / R 0.01 / F1 0.02 |
+| `discovery` | P 0.66 / R 0.27 / F1 0.38 | P 0.66 / R 0.26 / F1 0.37 |
+| `balanced_recall` | P 0.80 / R 0.25 / F1 0.38 | P 0.80 / R 0.24 / F1 0.38 |
+| `balanced_precision` | P 0.84 / R 0.10 / F1 0.17 | P 0.85 / R 0.09 / F1 0.17 |
+| `high_confidence` | P 0.86 / R 0.01 / F1 0.02 | P 0.87 / R 0.01 / F1 0.02 |
 
 CIRI-long was the weakest individual tool on this protocol (F1 0.05, far behind its performance on the CIRI-long/circFL-seq protocols).
 
-Excluding CIRI-long from the consensus tool set costs essentially nothing at any of the 4 tiers: P/R/F1 are identical or within 0.01 of each other with CIRI-long included vs excluded, and `high_confidence`'s F1 is actually higher with it excluded.
+Excluding CIRI-long from the consensus tool set costs at most 0.01 F1 at any of the 4 tiers: P/R/F1 are identical or within 0.01 of each other with CIRI-long included vs excluded.
 
 circNICK-lrs wet-lab protocol reads were not tested here: as noted above, circNICK-lrs's own protocol requires rolling-circle reads with multiple copies per read, a structure the other 3 tools can't use, so consensus scoring across tools does not apply to it.
 
@@ -1151,7 +1151,7 @@ The point of this plot is agreement, not any one tool's own recall. Of every cir
 
 **What we see:**
 
-- **Mouse outperformed human at every tier**, on both precision and recall. The difference is largest at `balanced_precision` tier (F1 0.50 vs 0.32) and smallest at `discovery` tier (F1 0.59 vs 0.47).
+- **The species effect is real for recall, not for precision.** Pooled across every caller and circRNA type, mouse recall/F1 is significantly higher (Wilcoxon p < 10⁻¹⁵), but precision shows no significant species gap at all (p = 0.44), and actually reverses for antisense and intergenic circRNAs, where human precision is significantly higher (see [Statistical significance](#statistical-significance-1) below). NanoCirc's own merged tiers still score higher on mouse at all 4 tiers, on both precision and recall (table above) — the F1 gap is largest at `balanced_precision` (F1 0.33 human vs 0.52 mouse) and smallest at `high_confidence` (F1 0.13 vs 0.22) — but that tier-level precision edge doesn't reflect a uniform species effect once you look past nanocirc's own merged output.
 
 - **Quantification differences between species are not as big**, on both precision and recall. Quantification performance is close between species and `balanced_precision` is actually slightly stronger on human (0.974 vs 0.947).
 
@@ -1218,6 +1218,8 @@ Ranking transfers significantly on every metric. By F1:
 | circNICK-lrs | 0.056 | 0.055 | 8 | 8 |
 
 Six of the eight callers reach the exact same F1 rank on both species. Only circFL-seq and isoCirc swap places (circFL-seq ranks 5th on human but 6th on mouse, isoCirc the reverse).
+
+F1 here is lower than the [structural precision/recall](#structural-precisionrecall-1) table above for the same tier (e.g. `discovery` 0.40/0.55 here vs 0.48/0.62 there): that table pools all circRNA types together per run before averaging across the 3 runs, while this one averages precision/recall/F1 per circRNA type first, then across type × run (15 points). The two are different aggregations of the same underlying calls, not different data.
 
 #### Per tool/mode, by metric (n=15 paired points per row: the 5 circRNA types × 3 runs, except circNICK-lrs precision n=6 and high_confidence precision n=12)
 

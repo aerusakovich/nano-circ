@@ -36,6 +36,13 @@ def read_bed(path, dedup=True):
     df = pd.DataFrame(rows, columns=BED12_COLS)
     df["start"] = df["start"].astype(int)
     df["end"] = df["end"].astype(int)
+    # Some tools' raw BED output (e.g. circFL-seq) leave the strand field
+    # genuinely blank for unstranded calls instead of writing '.'. Normalize
+    # here, once, at the shared read boundary, the same way smart_merge.py's
+    # own read_bed12() already does -- otherwise a blank string silently
+    # slips through as its own distinct "strand", corrupting any bedtools
+    # file built from a strand-based subset of these rows later on.
+    df.loc[~df["strand"].isin(("+", "-")), "strand"] = "."
     df["row_id"] = range(len(df))
     block_sizes = df["blockSizes"].str.rstrip(",").apply(lambda s: sum(int(x) for x in s.split(",") if x))
     df["spliced_len"] = block_sizes

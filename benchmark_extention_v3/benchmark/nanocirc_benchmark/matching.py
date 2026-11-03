@@ -11,9 +11,16 @@ Strategies:
                  exact BSJ + 100% overlap, strict = +/-Nbp BSJ + 99%
                  overlap, relaxed = +/-Nbp BSJ + 90% overlap.
 
-GT rows with strand '.' are intergenic circRNAs (strand unassigned at
-simulation time) and match a caller's call on either strand. Every function
-below splits GT into a stranded and an unstranded subset, then combines both.
+Strand '.' means "unresolved", not "no strand" -- a caller that emits '.'
+isn't claiming a strand at all (it's telling the researcher to resolve it
+independently, e.g. in the lab), and a GT row with '.' means the ground
+truth itself never established one (e.g. an intergenic circRNA). Neither
+side lying about strand should ever cost a match: a '.' on EITHER side
+credits a match against a real '+'/'-' call on the other side. Only two
+opposing real strands ('+' vs '-') are a genuine mismatch. Every function
+below runs three passes to cover this: real-vs-real (exact match via -s),
+caller-'.'-vs-GT-real (any GT strand), and any-caller-vs-GT-'.' (any
+caller strand).
 
 Usage as a library:
     from nanocirc_benchmark.matching import StructuralMatcher
@@ -42,6 +49,26 @@ def isoform_match_level_params(config, tag: str):
         if level["tag"] == tag:
             return level["bsj_tolerance"], level["min_overlap"]
     raise ValueError(f"unknown isoform match tier: {tag}")
+
+
+def _greedy_one_to_one(candidates):
+    """candidates: [(c_id, g_id, score), ...], higher score = better match.
+    Greedy assignment by descending score: once a caller row or GT row is
+    claimed, it can't be claimed again. This is what keeps TP/FP/FN counts
+    from inflating when several caller rows all qualify against one true GT
+    entry (e.g. consensus_hybrid's minority-BSJ and multi-isoform-recovery
+    rows), which otherwise credits one true locus as several true positives.
+    COCO-style greedy matching, not exact (Hungarian) optimal assignment,
+    same tradeoff standard detection benchmarks make for speed.
+    Returns (matched_caller_ids, matched_gt_ids), equal in size by
+    construction: TP == len(matched_caller) == len(matched_gt)."""
+    matched_caller, matched_gt = set(), set()
+    for c_id, g_id, _score in sorted(candidates, key=lambda x: x[2], reverse=True):
+        if c_id in matched_caller or g_id in matched_gt:
+            continue
+        matched_caller.add(c_id)
+        matched_gt.add(g_id)
+    return matched_caller, matched_gt
 
 
 def strategy_footnote(strategy: str, config) -> str:
@@ -80,12 +107,23 @@ def _split_by_strand(df):
 
 
 def _strand_passes(gt_df):
-    """Yields (gt_subset, strand_flag_or_None, tag) for the two matching
-    passes every counting function needs: stranded GT rows matched with -s,
-    unstranded GT rows ('.') matched with no strand flag at all."""
+    """Yields (caller_selector, gt_subset, strand_flag_or_None, tag) for the
+    three matching passes every counting function needs:
+      1. 'all' caller rows x stranded GT, exact match required (-s). The -s
+         flag alone already excludes caller '.' rows here, since '.' never
+         equals '+' or '-'.
+      2. 'unstranded' caller rows only x stranded GT, no strand flag: a
+         caller '.' isn't wrong, it declined to claim, so it can match any
+         real GT strand.
+      3. 'all' caller rows x unstranded ('.') GT, no strand flag: GT never
+         claimed a strand either, so any caller strand can match it.
+    caller_selector picks which caller bed a counting function should use
+    for that pass ('all' or 'unstranded'), since only the GT side varies
+    by content here."""
     stranded, unstranded = _split_by_strand(gt_df)
-    yield stranded, "-s", "stranded"
-    yield unstranded, None, "unstranded"
+    yield "all", stranded, "-s", "stranded"
+    yield "unstranded", stranded, None, "caller_unstranded"
+    yield "all", unstranded, None, "gt_unstranded"
 
 
 class StructuralMatcher:
@@ -105,20 +143,30 @@ class StructuralMatcher:
         gt_df = dedup_by_bsj(gt_df)
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
+        caller_unstranded_df = caller_df[~caller_df["strand"].isin(_STRANDED)]
+        caller_unstranded_bed = work / "caller_unstranded.bed"
+        if len(caller_unstranded_df) > 0:
+            write_bed_with_id(caller_unstranded_df, caller_unstranded_bed, "c")
 
         tp_ids = set()
         fn_matched_gt = set()
-        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+        for caller_sel, gt_subset, strand_flag, tag in _strand_passes(gt_df):
             if len(gt_subset) == 0:
                 continue
+            if caller_sel == "unstranded":
+                if len(caller_unstranded_df) == 0:
+                    continue
+                a_bed = caller_unstranded_bed
+            else:
+                a_bed = caller_bed
             gt_bed = work / f"gt_{tag}.bed"
             write_bed_with_id(gt_subset, gt_bed, "g")
             flags = [strand_flag] if strand_flag else []
 
-            tp_out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-f", "1.0", "-r", "-wa", "-u")
+            tp_out = self.bt.intersect("-a", str(a_bed), "-b", str(gt_bed), *flags, "-f", "1.0", "-r", "-wa", "-u")
             tp_ids |= {line.split("\t")[3] for line in tp_out.strip().split("\n") if line}
 
-            fn_out = self.bt.intersect("-a", str(gt_bed), "-b", str(caller_bed), *flags, "-f", "1.0", "-r", "-wa", "-u")
+            fn_out = self.bt.intersect("-a", str(gt_bed), "-b", str(a_bed), *flags, "-f", "1.0", "-r", "-wa", "-u")
             fn_matched_gt |= {line.split("\t")[3] for line in fn_out.strip().split("\n") if line}
 
         tp = len(tp_ids)
@@ -135,11 +183,22 @@ class StructuralMatcher:
 
     def relaxed_bsj_counts(self, caller_df, gt_df, work: Path, tolerance: int, return_ids=False):
         # Same BSJ-only collapse as strict_bsj_counts, for the same reason.
+        # Dedup alone doesn't guarantee one-to-one here: two distinct (still
+        # post-dedup) caller BSJs can each independently fall within
+        # tolerance of the same GT BSJ, so this still needs the same greedy
+        # one-to-one assignment exon_based_counts uses, scored by nearest
+        # boundary distance instead of exon overlap.
         orig_caller_df, orig_gt_df = caller_df, gt_df
         caller_df = dedup_by_bsj(caller_df)
         gt_df = dedup_by_bsj(gt_df)
+        caller_bounds = {f"c{r.row_id}": (r.start, r.end) for r in caller_df.itertuples()}
+        gt_bounds = {f"g{r.row_id}": (r.start, r.end) for r in gt_df.itertuples()}
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
+        caller_unstranded_df = caller_df[~caller_df["strand"].isin(_STRANDED)]
+        caller_unstranded_bed = work / "caller_unstranded.bed"
+        if len(caller_unstranded_df) > 0:
+            write_bed_with_id(caller_unstranded_df, caller_unstranded_bed, "c")
 
         def boundary_points(bed_path, out_path, which):
             df = pd.read_csv(bed_path, sep="\t", header=None, names=BED12_COLS)
@@ -153,6 +212,11 @@ class StructuralMatcher:
         caller_end = work / "caller_end.bed"
         boundary_points(caller_bed, caller_start, "start")
         boundary_points(caller_bed, caller_end, "end")
+        caller_unstranded_start = work / "caller_unstranded_start.bed"
+        caller_unstranded_end = work / "caller_unstranded_end.bed"
+        if len(caller_unstranded_df) > 0:
+            boundary_points(caller_unstranded_bed, caller_unstranded_start, "start")
+            boundary_points(caller_unstranded_bed, caller_unstranded_end, "end")
 
         def pair_set(a_bed, b_slop_bed, strand_flag):
             flags = [strand_flag] if strand_flag else []
@@ -167,9 +231,15 @@ class StructuralMatcher:
 
         genome = str(self.genome_sizes_file)
         matched_pairs = set()
-        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+        for caller_sel, gt_subset, strand_flag, tag in _strand_passes(gt_df):
             if len(gt_subset) == 0:
                 continue
+            if caller_sel == "unstranded":
+                if len(caller_unstranded_df) == 0:
+                    continue
+                a_start, a_end = caller_unstranded_start, caller_unstranded_end
+            else:
+                a_start, a_end = caller_start, caller_end
             gt_bed = work / f"gt_{tag}.bed"
             write_bed_with_id(gt_subset, gt_bed, "g")
             gt_start = work / f"gt_{tag}_start.bed"
@@ -184,12 +254,18 @@ class StructuralMatcher:
             subprocess.run([self.bt.bedtools_bin, "slop", "-i", str(gt_end), "-g", genome, "-b", str(tolerance)],
                            stdout=open(gt_end_slop, "w"), check=True)
 
-            start_pairs = pair_set(caller_start, gt_start_slop, strand_flag)
-            end_pairs = pair_set(caller_end, gt_end_slop, strand_flag)
+            start_pairs = pair_set(a_start, gt_start_slop, strand_flag)
+            end_pairs = pair_set(a_end, gt_end_slop, strand_flag)
             matched_pairs |= (start_pairs & end_pairs)
 
-        matched_caller = {p[0] for p in matched_pairs}
-        matched_gt = {p[1] for p in matched_pairs}
+        candidates = []
+        for c_id, g_id in matched_pairs:
+            c_start, c_end = caller_bounds[c_id]
+            g_start, g_end = gt_bounds[g_id]
+            distance = abs(c_start - g_start) + abs(c_end - g_end)
+            candidates.append((c_id, g_id, -distance))  # nearest wins: less distance = higher score
+
+        matched_caller, matched_gt = _greedy_one_to_one(candidates)
 
         tp = len(matched_caller)
         fp = len(caller_df) - tp
@@ -208,18 +284,33 @@ class StructuralMatcher:
     def exon_based_counts(self, caller_df, gt_df, work: Path, min_overlap: float, return_ids=False):
         """return_ids: False returns (tp, fp, fn). True also returns matched
         GT row_ids. "both" also returns matched caller row_ids, to find
-        which caller rows are FP (not in the matched set)."""
+        which caller rows are FP (not in the matched set).
+
+        One caller row can claim at most one GT row and vice versa (greedy
+        one-to-one, best exon_score first): several caller rows qualifying
+        against the same true GT entry no longer inflate TP, they compete
+        for it, and the losers are FPs. See _greedy_one_to_one."""
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
+        caller_unstranded_df = caller_df[~caller_df["strand"].isin(_STRANDED)]
+        caller_unstranded_bed = work / "caller_unstranded.bed"
+        if len(caller_unstranded_df) > 0:
+            write_bed_with_id(caller_unstranded_df, caller_unstranded_bed, "c")
 
         lines = []
-        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+        for caller_sel, gt_subset, strand_flag, tag in _strand_passes(gt_df):
             if len(gt_subset) == 0:
                 continue
+            if caller_sel == "unstranded":
+                if len(caller_unstranded_df) == 0:
+                    continue
+                a_bed = caller_unstranded_bed
+            else:
+                a_bed = caller_bed
             gt_bed = work / f"gt_{tag}.bed"
             write_bed_with_id(gt_subset, gt_bed, "g")
             flags = [strand_flag] if strand_flag else []
-            out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
+            out = self.bt.intersect("-a", str(a_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
             lines += [l for l in out.strip().split("\n") if l]
 
         if not lines:
@@ -239,7 +330,7 @@ class StructuralMatcher:
             key = (c_id, g_id)
             overlap_bp[key] = overlap_bp.get(key, 0) + ov
 
-        matched_caller, matched_gt = set(), set()
+        candidates = []
         for (c_id, g_id), ov in overlap_bp.items():
             cl = caller_len.get(c_id, 0)
             gl = gt_len.get(g_id, 0)
@@ -247,8 +338,9 @@ class StructuralMatcher:
                 continue
             exon_score = min(ov / cl, ov / gl)
             if exon_score >= min_overlap:
-                matched_caller.add(c_id)
-                matched_gt.add(g_id)
+                candidates.append((c_id, g_id, exon_score))
+
+        matched_caller, matched_gt = _greedy_one_to_one(candidates)
 
         tp = len(matched_caller)
         fp = len(caller_df) - tp
@@ -274,15 +366,25 @@ class StructuralMatcher:
         or tools legitimately supporting one true locus."""
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
+        caller_unstranded_df = caller_df[~caller_df["strand"].isin(_STRANDED)]
+        caller_unstranded_bed = work / "caller_unstranded.bed"
+        if len(caller_unstranded_df) > 0:
+            write_bed_with_id(caller_unstranded_df, caller_unstranded_bed, "c")
 
         lines = []
-        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+        for caller_sel, gt_subset, strand_flag, tag in _strand_passes(gt_df):
             if len(gt_subset) == 0:
                 continue
+            if caller_sel == "unstranded":
+                if len(caller_unstranded_df) == 0:
+                    continue
+                a_bed = caller_unstranded_bed
+            else:
+                a_bed = caller_bed
             gt_bed = work / f"gt_{tag}.bed"
             write_bed_with_id(gt_subset, gt_bed, "g")
             flags = [strand_flag] if strand_flag else []
-            out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
+            out = self.bt.intersect("-a", str(a_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
             lines += [l for l in out.strip().split("\n") if l]
 
         if not lines:
@@ -319,18 +421,29 @@ class StructuralMatcher:
         boundaries are within `tolerance` bp of a GT locus's own boundaries
         AND its exon structure reciprocally overlaps that same GT isoform
         by >= min_overlap. Same overlap computation as exon_based_counts, with an
-        added per-pair boundary check."""
+        added per-pair boundary check. Same greedy one-to-one assignment as
+        exon_based_counts too, for the same reason (see _greedy_one_to_one)."""
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
+        caller_unstranded_df = caller_df[~caller_df["strand"].isin(_STRANDED)]
+        caller_unstranded_bed = work / "caller_unstranded.bed"
+        if len(caller_unstranded_df) > 0:
+            write_bed_with_id(caller_unstranded_df, caller_unstranded_bed, "c")
 
         lines = []
-        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+        for caller_sel, gt_subset, strand_flag, tag in _strand_passes(gt_df):
             if len(gt_subset) == 0:
                 continue
+            if caller_sel == "unstranded":
+                if len(caller_unstranded_df) == 0:
+                    continue
+                a_bed = caller_unstranded_bed
+            else:
+                a_bed = caller_bed
             gt_bed = work / f"gt_{tag}.bed"
             write_bed_with_id(gt_subset, gt_bed, "g")
             flags = [strand_flag] if strand_flag else []
-            out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
+            out = self.bt.intersect("-a", str(a_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
             lines += [l for l in out.strip().split("\n") if l]
 
         if not lines:
@@ -352,7 +465,7 @@ class StructuralMatcher:
             key = (c_id, g_id)
             overlap_bp[key] = overlap_bp.get(key, 0) + ov
 
-        matched_caller, matched_gt = set(), set()
+        candidates = []
         for (c_id, g_id), ov in overlap_bp.items():
             cl = caller_len.get(c_id, 0)
             gl = gt_len.get(g_id, 0)
@@ -365,8 +478,9 @@ class StructuralMatcher:
             g_start, g_end = gt_bounds[g_id]
             if abs(c_start - g_start) > tolerance or abs(c_end - g_end) > tolerance:
                 continue
-            matched_caller.add(c_id)
-            matched_gt.add(g_id)
+            candidates.append((c_id, g_id, exon_score))
+
+        matched_caller, matched_gt = _greedy_one_to_one(candidates)
 
         tp = len(matched_caller)
         fp = len(caller_df) - tp
@@ -393,15 +507,25 @@ class StructuralMatcher:
         best-match read count) instead of just knowing a pair matched."""
         caller_bed = work / "caller.bed"
         write_bed_with_id(caller_df, caller_bed, "c")
+        caller_unstranded_df = caller_df[~caller_df["strand"].isin(_STRANDED)]
+        caller_unstranded_bed = work / "caller_unstranded.bed"
+        if len(caller_unstranded_df) > 0:
+            write_bed_with_id(caller_unstranded_df, caller_unstranded_bed, "c")
 
         lines = []
-        for gt_subset, strand_flag, tag in _strand_passes(gt_df):
+        for caller_sel, gt_subset, strand_flag, tag in _strand_passes(gt_df):
             if len(gt_subset) == 0:
                 continue
+            if caller_sel == "unstranded":
+                if len(caller_unstranded_df) == 0:
+                    continue
+                a_bed = caller_unstranded_bed
+            else:
+                a_bed = caller_bed
             gt_bed = work / f"gt_{tag}.bed"
             write_bed_with_id(gt_subset, gt_bed, "g")
             flags = [strand_flag] if strand_flag else []
-            out = self.bt.intersect("-a", str(caller_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
+            out = self.bt.intersect("-a", str(a_bed), "-b", str(gt_bed), *flags, "-wo", "-split")
             lines += [l for l in out.strip().split("\n") if l]
 
         if not lines:
@@ -451,7 +575,8 @@ class StructuralMatcher:
 def match_to_gt(call_df, gt_df, tolerance, extra_col=None):
     """Coordinate-tolerance match: same chrom, start/end both within
     `tolerance` bp (nearest by total distance if >1 candidate). Strand must
-    match UNLESS the GT row is unstranded ('.', intergenic).
+    match UNLESS the GT row is unstranded ('.', intergenic) OR the caller
+    row is ('.', declined to claim a strand rather than lying about one).
     Returns gt_bsj_id -> list of (n_reads, extra_col value or None), so the
     caller can both sum counts and, for tiered callers, filter by which
     tier's own bed12 that source row belongs to before aggregating."""
@@ -463,7 +588,8 @@ def match_to_gt(call_df, gt_df, tolerance, extra_col=None):
         cand = gt_by_chrom.get(row.chrom)
         if cand is None:
             continue
-        strand_ok = (cand["strand"] == row.strand) | ~cand["strand"].isin(_STRANDED)
+        strand_ok = (cand["strand"] == row.strand) | ~cand["strand"].isin(_STRANDED) \
+            | (row.strand not in _STRANDED)
         d_start = (cand["start"] - row.start).abs()
         d_end = (cand["end"] - row.end).abs()
         ok = strand_ok & (d_start <= tolerance) & (d_end <= tolerance)
@@ -587,7 +713,8 @@ def match_pred_to_pred(call_df, ref_df, tolerance):
         cand = ref_by_chrom.get(row.chrom)
         if cand is None:
             continue
-        strand_ok = (cand["strand"] == row.strand) | ~cand["strand"].isin(_STRANDED)
+        strand_ok = (cand["strand"] == row.strand) | ~cand["strand"].isin(_STRANDED) \
+            | (row.strand not in _STRANDED)
         d_start = (cand["start"] - row.start).abs()
         d_end = (cand["end"] - row.end).abs()
         ok = strand_ok & (d_start <= tolerance) & (d_end <= tolerance)
